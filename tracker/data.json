@@ -1,0 +1,114 @@
+{
+    "plants": [{
+            "name": "Basil",
+            "care_schedule": [
+                { "task_title": "Sow seeds or transplant", "days_after_planting": 0 },
+                { "task_title": "Pinch top leaves to encourage bushiness", "days_after_planting": 25 },
+                { "task_title": "Water regularly, avoid wet leaves", "notes": "Ongoing task" },
+                { "task_title": "Harvest leaves as needed", "days_after_planting": 40 }
+            ]
+        },
+        {
+            "name": "Bell Peppers",
+            "care_schedule": [
+                { "task_title": "Transplant seedlings", "days_after_planting": 0 },
+                { "task_title": "Fertilize after first flowers appear", "days_after_planting": 35 },
+                { "task_title": "Water consistently", "notes": "Ongoing task" },
+                { "task_title": "Harvest", "days_after_planting": 75 }
+            ]
+        },
+        {
+            "name": "Carrots",
+            "care_schedule": [
+                { "task_title": "Sow seeds", "days_after_planting": 0 },
+                { "task_title": "Thin seedlings to 2 inches apart", "days_after_planting": 21 },
+                { "task_title": "Fertilize with low-nitrogen fertilizer", "days_after_planting": 35 },
+                { "task_title": "Keep soil consistently moist", "notes": "Ongoing task" },
+                { "task_title": "Harvest", "days_after_planting": 70 }
+            ]
+        },
+        {
+            "name": "Cucumbers",
+            "care_schedule": [
+                { "task_title": "Sow seeds", "days_after_planting": 0 },
+                { "task_title": "Provide trellis or support", "days_after_planting": 14 },
+                { "task_title": "Fertilize when vines start to run", "days_after_planting": 30 },
+                { "task_title": "Water consistently", "notes": "Ongoing task" },
+                { "task_title": "Harvest", "days_after_planting": 55 }
+            ]
+        },
+        {
+            "name": "Lettuce",
+            "care_schedule": [
+                { "task_title": "Sow seeds directly", "days_after_planting": 0 },
+                { "task_title": "Thin seedlings", "days_after_planting": 14 },
+                { "task_title": "Provide afternoon shade in hot climates", "notes": "Ongoing task" },
+                { "task_title": "Harvest outer leaves or whole head", "days_after_planting": 45 }
+            ]
+        },
+        {
+            "name": "Mint",
+            "care_schedule": [
+                { "task_title": "Plant in a container (it spreads!)", "days_after_planting": 0 },
+                { "task_title": "Water regularly", "notes": "Ongoing task" },
+                { "task_title": "Harvest leaves as needed", "days_after_planting": 30 }
+            ]
+        },
+        {
+            "name": "Potatoes",
+            "care_schedule": [
+                { "task_title": "Plant seed potatoes", "days_after_planting": 0 },
+                { "task_title": "Mound soil (hilling) around plants", "days_after_planting": 21 },
+                { "task_title": "Repeat hilling", "days_after_planting": 42 },
+                { "task_title": "Harvest new potatoes", "days_after_planting": 70 },
+                { "task_title": "Harvest main crop after foliage dies back", "days_after_planting": 100 }
+            ]
+        },
+        {
+            "name": "Radishes",
+            "care_schedule": [
+                { "task_title": "Sow seeds", "days_after_planting": 0 },
+                { "task_title": "Thin seedlings", "days_after_planting": 7 },
+                { "task_title": "Water consistently for best texture", "notes": "Ongoing task" },
+                { "task_title": "Harvest", "days_after_planting": 25 }
+            ]
+        },
+        {
+            "name": "Rosemary",
+            "care_schedule": [
+                { "task_title": "Plant seedling", "days_after_planting": 0 },
+                { "task_title": "Water sparingly, allow soil to dry", "notes": "Ongoing task" },
+                { "task_title": "Prune to shape", "notes": "After first year" },
+                { "task_title": "Harvest sprigs as needed", "days_after_planting": 60 }
+            ]
+        },
+        {
+            "name": "Spinach",
+            "care_schedule": [
+                { "task_title": "Sow seeds in cool weather", "days_after_planting": 0 },
+                { "task_title": "Keep soil moist", "notes": "Ongoing task" },
+                { "task_title": "Harvest outer leaves", "days_after_planting": 40 }
+            ]
+        },
+        {
+            "name": "Tomatoes",
+            "care_schedule": [
+                { "task_title": "Transplant seedling", "days_after_planting": 0 },
+                { "task_title": "Install stake or cage for support", "days_after_planting": 7 },
+                { "task_title": "Fertilize with balanced fertilizer", "days_after_planting": 28 },
+                { "task_title": "Water deeply and consistently", "notes": "Ongoing task" },
+                { "task_title": "Prune suckers", "notes": "Ongoing task" },
+                { "task_title": "Begin harvesting", "days_after_planting": 60 }
+            ]
+        },
+        {
+            "name": "Zucchini",
+            "care_schedule": [
+                { "task_title": "Sow seeds", "days_after_planting": 0 },
+                { "task_title": "Fertilize when first blossoms appear", "days_after_planting": 35 },
+                { "task_title": "Water deeply", "notes": "Ongoing task" },
+                { "task_title": "Harvest frequently", "days_after_planting": 50 }
+            ]
+        }
+    ]
+}

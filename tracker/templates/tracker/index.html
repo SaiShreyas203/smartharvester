@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TerraTrack</title>
+    <style>
+        :root {
+            /* Theme Colors */
+            --primary-color: #5cb85c; --primary-darker: #4a934a; --text-color: #f8f9fa; --text-muted: #adb5bd;
+            --surface-color: rgba(44, 48, 52, 0.85); --border-color: #495057;
+            /* Day/Night Cycle Colors */
+            --day-bg-start: #87CEEB; --day-bg-end: #4682B4;
+            --evening-bg-start: #f7b733; --evening-bg-end: #fc4a1a;
+            --night-bg-start: #0c1445; --night-bg-end: #212529;
+            --sun-color: #f9d71c; --moon-color: #f4f6f0;
+        }
+        html { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0; display: flex; flex-direction: column;
+            position: relative; color: var(--text-color);
+            transition: background 2s ease;
+            min-height: 100%; 
+        }
+        body.day { background: linear-gradient(to bottom, var(--day-bg-start), var(--day-bg-end)) no-repeat; background-attachment: fixed; }
+        body.evening { background: linear-gradient(to bottom, var(--evening-bg-start), var(--evening-bg-end)) no-repeat; background-attachment: fixed; }
+        body.night { background: linear-gradient(to bottom, var(--night-bg-start), var(--night-bg-end)) no-repeat; background-attachment: fixed; }
+
+        .scene, #weather-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+        .forest-layer { position: absolute; bottom: 0; left: 0; width: 200%; height: 100%; background-repeat: repeat-x; background-position: bottom left; transition: background-image 2s ease-in-out; }
+        #sky-orb { position: absolute; top: 10%; right: 15%; width: 60px; height: 60px; border-radius: 50%; transition: all 2s ease; }
+        body.day #sky-orb { background: var(--sun-color); box-shadow: 0 0 30px var(--sun-color); }
+        body.evening #sky-orb { background: #ff8c00; box-shadow: 0 0 40px #ff8c00; }
+        body.night #sky-orb { background: var(--moon-color); box-shadow: 0 0 30px var(--moon-color); }
+
+        #forest-back { animation: parallax 60s linear infinite; z-index: 2; opacity: 0.6; }
+        #forest-mid { animation: parallax 40s linear infinite; z-index: 3; opacity: 0.8; }
+        #forest-front { animation: parallax 20s linear infinite; z-index: 4; }
+
+        /* --- UI Elements --- */
+        .header, .main-content-wrapper, .footer { z-index: 10; position: relative; }
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 1em 2em; background: rgba(0,0,0,0.1); backdrop-filter: blur(5px); border-bottom: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
+        .logo-title { display: flex; align-items: center; gap: 0.75em; }
+        .logo svg { width: 40px; height: 40px; fill: var(--primary-color); }
+        h1 { margin: 0; font-size: 1.8em; }
+        
+        .add-button { display: inline-flex; align-items: center; gap: 0.5em; background-image: linear-gradient(to right, var(--primary-color) 0%, var(--primary-darker) 100%); color: white; padding: 12px 20px; text-decoration: none; border-radius: 50px; font-weight: bold; white-space: nowrap; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s ease; }
+        .add-button:hover { transform: translateY(-2px); box-shadow: 0 7px 20px rgba(0,0,0,0.3); background-image: linear-gradient(to right, #6fbf6f 0%, #5cb85c 100%); }
+        .add-button svg { width: 1.2em; height: 1.2em; }
+
+        .main-content-wrapper { display: flex; padding: 15px; gap: 10px; max-width: 1200px; margin: 0 auto; }
+        .footer { text-align: center; padding: 1em; font-size: 0.9em; color: var(--text-muted); background: rgba(0,0,0,0.2); backdrop-filter: blur(5px); flex-shrink: 0; }
+        
+        .content-column { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            min-width: 0;
+        }
+        .content-column h2 { color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5em; margin: 0 0 10px 0; }
+        .planting-grid { perspective: 1000px; }
+        
+        .planting-card { background: var(--surface-color); border-left: 4px solid var(--primary-color); border-radius: 8px; padding: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.5); margin-bottom: 10px; position: relative; display: flex; flex-direction: column; gap: 0.5em; transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; }
+        .planting-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.4); }
+        .card-top-header { text-align: center; margin-bottom: 0.25em; }
+        .card-top-header h3 { margin: 0; font-size: 1.1em; font-weight: bold; }
+        .card-top-header .batch-id { font-size: 0.8em; font-style: italic; color: var(--text-muted); }
+        .card-dates-row { display: flex; justify-content: space-between; align-items: center; gap: 1em; flex-wrap: nowrap; }
+        .date-group { font-size: 0.8em; color: var(--text-muted); white-space: nowrap; }
+        .card-notes { display: flex; flex-direction: column; gap: 0.5em; }
+        .card-notes h4 { margin: 0; color: var(--text-muted); font-size: 0.9em; font-weight: bold; }
+        .card-notes p { margin: 0; font-style: italic; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }
+        .card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 0.5em; }
+        .action-btn { background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 0.9em; line-height: 26px; text-align: center; }
+
+        .card-steps { display: none; }
+
+        /* --- Modal Styles --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 1000; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: var(--surface-color); padding: 2em; border-radius: 12px; max-width: 500px; width: 90%; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.5); border-top: 5px solid var(--primary-color); }
+        .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: white; font-size: 2em; cursor: pointer; }
+        #modal-title { margin-top: 0; color: var(--primary-color); }
+        #modal-notes p { font-style: italic; }
+        #modal-steps-list { padding-left: 20px; }
+
+        /* --- Wildlife & Weather Animations (unchanged) --- */
+        .bird { position: absolute; width: 50px; height: 50px; background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M22,7.5C22,5.56 20.44,4 18.5,4C17.2,4 16.08,4.73 15.5,5.75L12,12L8.5,5.75C7.92,4.73 6.8,4 5.5,4C3.56,4 2,5.56 2,7.5C2,8.81 2.76,9.92 3.8,10.5L12,16L20.2,10.5C21.24,9.92 22,8.81 22,7.5Z"/></svg>'); z-index: 5; animation: fly-left linear infinite; }
+        #bird1 { top: 15%; animation-duration: 15s; } #bird2 { top: 25%; animation-duration: 20s; animation-delay: 3s; } #bird3 { top: 35%; animation-duration: 18s; animation-delay: 8s; }
+        #walking-deer { position: absolute; bottom: 100px; width: 100px; height: 100px; background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%234a4a4a" d="M12,2L10.5,3.5L12,5L14,3L12,2M19,12C19,11.5 18.8,11 18.5,10.5L17.5,9.5C17.2,9.2 16.8,9 16.5,9H13V6L12,7L11,6V9H7.5C6.9,9 6.5,9.4 6.5,10C6.5,10.6 6.9,11 7.5,11H8V13H6V12L3,15V21H5V18L6.5,17.5L7,21H9L8.5,18H9.5L10,21H12L11,14L12,13L14.5,15.5L16,14L15,12H16.5C17.9,12 19,10.9 19,9.5V9C19,8.4 18.6,8 18,8L17,8.5V6.5L18.5,5C19.8,6.2 20.5,7.9 20.5,9.5C20.5,10.9 19.9,12.1 19,13C19.6,13.6 20,14.5 20,15.5V21H22V15.5C22,13.6 20.7,12 19,12Z"/></svg>'); z-index: 3; animation: walk-across 50s linear infinite 10s; }
+        .firefly { position: absolute; width: 4px; height: 4px; background: #9acd32; border-radius: 50%; box-shadow: 0 0 10px #9acd32; animation: firefly-float 5s infinite ease-in-out; }
+        .raindrop { position: absolute; bottom: 100%; width: 1px; height: 50px; background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 100%); animation: rain-fall 0.5s linear infinite; }
+        .snowflake { position: absolute; top: -10px; width: 10px; height: 10px; background: white; border-radius: 50%; animation: snow-fall 10s linear infinite; }
+        .leaf { position: absolute; top: -10%; width: 20px; height: 20px; background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="green" d="M17,8C8,10 5.9,16.17 3.82,21.34L5.71,22L6.66,19.7C7.14,19.87 7.64,20 8,20C19,20 22,3 22,3C21,5 14,5.25 9,6.25C12,3.25 17,3 17,3V8Z" /></svg>'); animation: leaf-blow 7s linear infinite; }
+
+        @keyframes parallax { from { background-position-x: 0; } to { background-position-x: -200%; } }
+        @keyframes fly-left { from { left: 110%; } to { left: -10%; } }
+        @keyframes walk-across { from { left: -10%; transform: scaleX(1); } 49% { transform: scaleX(1); } 50% { left: 110%; transform: scaleX(-1); } 99% { transform: scaleX(-1); } to { left: -10%; transform: scaleX(1); } }
+        @keyframes firefly-float { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+        @keyframes rain-fall { to { transform: translateY(100vh); } }
+        @keyframes snow-fall { to { transform: translateY(100vh) rotate(600deg); } }
+        @keyframes leaf-blow { from { transform: translateX(0vw) rotate(0deg); } to { transform: translateX(100vw) rotate(720deg); } }
+
+        @media (max-width: 900px) {
+            .main-content-wrapper { flex-direction: column; overflow: auto; }
+            .header { flex-direction: column; gap: 1em; padding: 1em; }
+            .scene, #walking-deer { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="scene">
+        <div id="sky-orb"></div>
+        <div id="forest-back" class="forest-layer"></div>
+        <div id="forest-mid" class="forest-layer"></div>
+        <div class="bird" id="bird1"></div>
+        <div class="bird" id="bird2"></div>
+        <div id="walking-deer"></div>
+        <div id="forest-front" class="forest-layer"></div>
+        <div class="bird" id="bird3"></div>
+        <div id="fireflies"></div>
+    </div>
+    <div id="weather-container"></div>
+
+    <header class="header">
+        <div class="logo-title">
+            <a href="{% url 'index' %}" class="logo"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12C2,16.18 4.7,20.45 8.8,21.8L8.05,20.1C4.83,18.91 2.94,15.5 3.06,12.06C3.3,8.68 5.8,5.85 9.14,5.14C14.14,4.19 18.81,7.86 18.94,12.86C19.06,16.5 16.94,19.79 13.7,21.05L13,21.8C17.7,20.45 22,16.18 22,12A10,10 0 0,0 12,2M11,11.5A1.5,1.5 0 0,1 9.5,13A1.5,1.5 0 0,1 8,11.5A1.5,1.5 0 0,1 9.5,10A1.5,1.5 0 0,1 11,11.5M16,11.5A1.5,1.5 0 0,1 14.5,13A1.5,1.5 0 0,1 13,11.5A1.5,1.5 0 0,1 14.5,10A1.5,1.5 0 0,1 16,11.5M12,6A1.5,1.5 0 0,1 13.5,7.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 10.5,7.5A1.5,1.5 0 0,1 12,6Z"></path></svg></a>
+            <h1>TerraTrack</h1>
+        </div>
+        <a href="{% url 'add_planting' %}" class="add-button">
+            <svg fill="currentColor" viewBox="0 0 20 20"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"></path></svg>
+            Add New Planting
+        </a>
+    </header>
+
+    <main class="main-content-wrapper">
+        <!-- Upcoming Harvests Column -->
+        <div class="content-column">
+            <h2>Upcoming Harvests</h2>
+            <div class="planting-grid">
+                {% for planting in upcoming %}
+                <div class="planting-card">
+                    <div class="card-actions"><a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a><form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">{% csrf_token %}<button type="submit" class="action-btn delete-btn" title="Delete">&times;</button></form></div>
+                    <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>{% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}</div>
+                    <div class="card-dates-row"><div class="date-group"><strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>{% if planting.harvest_date %}<div class="date-group"><strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}</div>
+                    {% if planting.notes %}<div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
+                    <div class="card-steps">{% for task_item in planting.plan %}<li>{{ task_item.task }}{% if task_item.due_date %} ({{ task_item.due_date|date:"M d" }}){% endif %}</li>{% endfor %}</div>
+                </div>
+                {% empty %}<p class="empty-state">No plantings in this category.</p>{% endfor %}
+            </div>
+        </div>
+
+        <!-- Ongoing Harvests Column -->
+        <div class="content-column">
+            <h2>Ongoing Harvests</h2>
+            <div class="planting-grid">
+                {% for planting in ongoing %}
+                <div class="planting-card">
+                    <div class="card-actions"><a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a><form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">{% csrf_token %}<button type="submit" class="action-btn delete-btn" title="Delete">&times;</button></form></div>
+                    <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>{% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}</div>
+                    <div class="card-dates-row"><div class="date-group"><strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>{% if planting.harvest_date %}<div class="date-group"><strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}</div>
+                    {% if planting.notes %}<div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
+                    <div class="card-steps">{% for task_item in planting.plan %}<li>{{ task_item.task }}{% if task_item.due_date %} ({{ task_item.due_date|date:"M d" }}){% endif %}</li>{% endfor %}</div>
+                </div>
+                {% empty %}<p class="empty-state">No other ongoing plantings.</p>{% endfor %}
+            </div>
+        </div>
+
+        <!-- Past Harvests Column -->
+        <div class="content-column">
+            <h2>Past Harvests</h2>
+            <div class="planting-grid">
+                {% for planting in past %}
+                <div class="planting-card">
+                    <div class="card-actions"><a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a><form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">{% csrf_token %}<button type="submit" class="action-btn delete-btn" title="Delete">&times;</button></form></div>
+                    <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>{% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}</div>
+                    <div class="card-dates-row"><div class="date-group"><strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>{% if planting.harvest_date %}<div class="date-group"><strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}</div>
+                    {% if planting.notes %}<div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
+                    <div class="card-steps">{% for task_item in planting.plan %}<li>{{ task_item.task }}{% if task_item.due_date %} ({{ task_item.due_date|date:"M d" }}){% endif %}</li>{% endfor %}</div>
+                </div>
+                {% empty %}<p class="empty-state">No past plantings.</p>{% endfor %}
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">Sow, Grow, Crop.</footer>
+
+    <!-- NEW: Modal structure -->
+    <div id="details-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="modal-close-btn" class="modal-close">&times;</button>
+            <h2 id="modal-title"></h2>
+            <div id="modal-notes"></div>
+            <h4>Steps to be followed:</h4>
+            <ul id="modal-steps-list"></ul>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // All the theme and weather logic from before...
+            const body = document.body;
+            const weatherContainer = document.getElementById('weather-container');
+            const firefliesContainer = document.getElementById('fireflies');
+
+            const timesOfDay = ['day', 'evening', 'night'];
+            const weatherTypes = ['clear', 'rain', 'snow', 'breezy'];
+            const backgroundThemes = {
+                forest: { back: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%232c3e50\" d=\"M0 200 V120 C100 110, 150 130, 250 125 S400 110, 500 120 S650 140, 800 130 V200 Z\" /></svg>')", mid: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%2334495e\" d=\"M0 200 V140 C80 150, 180 130, 280 135 S450 160, 550 150 S700 130, 800 140 V200 Z\" /></svg>')", front: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%231e2b37\" d=\"M0 200 V160 C120 150, 220 170, 320 165 S500 140, 600 150 S750 170, 800 160 V200 Z\" /></svg>')" },
+                hills: { back: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%236a89cc\" d=\"M0 200 V100 C150 50, 250 150, 400 120 S550 100, 700 150 L800 140 V200 Z\" /></svg>')", mid: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%234a69bd\" d=\"M0 200 V130 C100 180, 200 100, 350 140 S500 180, 650 120 L800 150 V200 Z\" /></svg>')", front: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%231e3799\" d=\"M0 200 V160 C150 140, 250 180, 400 170 S550 150, 700 160 L800 150 V200 Z\" /></svg>')" },
+                agri: { back: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%23f39c12\" d=\"M0 200 V180 H800 V200 Z\" /></svg>')", mid: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%23e67e22\" d=\"M0 200 V190 H800 V200 Z\" /></svg>')", front: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%23d35400\" d=\"M0 200 V195 H800 V200 Z\" /></svg>')" }
+            };
+            let timeIndex = 0, weatherIndex = 0, backgroundIndex = 0;
+            function setTimeOfDay() { body.classList.remove(...timesOfDay); const newTime = timesOfDay[timeIndex]; body.classList.add(newTime); firefliesContainer.innerHTML = ''; if (newTime === 'night' || newTime === 'evening') createFireflies(); timeIndex = (timeIndex + 1) % timesOfDay.length; }
+            function setWeather() { weatherContainer.innerHTML = ''; const newWeather = weatherTypes[weatherIndex]; if (newWeather === 'rain') createParticles('raindrop', 100); if (newWeather === 'snow') createParticles('snowflake', 50); if (newWeather === 'breezy') createParticles('leaf', 20); weatherIndex = (weatherIndex + 1) % weatherTypes.length; }
+            function setBackground() { const themeName = Object.keys(backgroundThemes)[backgroundIndex]; const theme = backgroundThemes[themeName]; document.getElementById('forest-back').style.backgroundImage = theme.back; document.getElementById('forest-mid').style.backgroundImage = theme.mid; document.getElementById('forest-front').style.backgroundImage = theme.front; backgroundIndex = (backgroundIndex + 1) % Object.keys(backgroundThemes).length; }
+            function createFireflies() { for (let i = 0; i < 20; i++) { const firefly = document.createElement('div'); firefly.className = 'firefly'; firefly.style.left = `${Math.random() * 100}%`; firefly.style.top = `${Math.random() * 80}%`; firefly.style.animationDelay = `${Math.random() * 5}s`; firefly.style.animationDuration = `${3 + Math.random() * 2}s`; firefliesContainer.appendChild(firefly); } }
+            function createParticles(className, count) { for (let i = 0; i < count; i++) { const particle = document.createElement('div'); particle.className = className; particle.style.left = `${Math.random() * 100}vw`; if (className === 'raindrop') { particle.style.animationDelay = `${Math.random() * 2}s`; particle.style.animationDuration = `${0.3 + Math.random() * 0.3}s`; } else if (className === 'snowflake') { particle.style.animationDelay = `${Math.random() * 10}s`; particle.style.animationDuration = `${5 + Math.random() * 5}s`; particle.style.opacity = Math.random(); } else if (className === 'leaf') { particle.style.top = `${Math.random() * 100}%`; particle.style.animationDelay = `${Math.random() * 7}s`; particle.style.animationDuration = `${4 + Math.random() * 3}s`; } weatherContainer.appendChild(particle); } }
+            setTimeOfDay(); setWeather(); setBackground();
+            setInterval(setTimeOfDay, 5 * 60 * 1000); setInterval(setWeather, 2 * 60 * 1000); setInterval(setBackground, 10 * 60 * 1000);
+
+            // --- NEW: Modal Logic ---
+            const modal = document.getElementById('details-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalNotes = document.getElementById('modal-notes');
+            const modalStepsList = document.getElementById('modal-steps-list');
+            const closeModalBtn = document.getElementById('modal-close-btn');
+
+            document.querySelectorAll('.planting-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const title = card.querySelector('h3').textContent;
+                    const notesDiv = card.querySelector('.card-notes');
+                    const stepsHTML = card.querySelector('.card-steps').innerHTML;
+
+                    modalTitle.textContent = title;
+                    modalNotes.innerHTML = notesDiv ? notesDiv.innerHTML : '';
+                    modalStepsList.innerHTML = stepsHTML;
+                    
+                    modal.style.display = 'flex';
+                });
+            });
+
+            function closeModal() {
+                modal.style.display = 'none';
+            }
+
+            closeModalBtn.addEventListener('click', closeModal);
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    closeModal();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

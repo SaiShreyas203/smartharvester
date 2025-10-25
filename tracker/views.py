@@ -1,0 +1,151 @@
+import json
+from datetime import date, timedelta
+from django.shortcuts import render, redirect
+from django.conf import settings
+import os
+
+DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
+
+def load_plant_data():
+    with open(DATA_FILE_PATH, 'r') as f:
+        return json.load(f)
+
+def _calculate_plan(crop_name, planting_date):
+    """Helper function to calculate a care plan."""
+    plant_data = load_plant_data()
+    schedule_info = next((p['care_schedule'] for p in plant_data['plants'] if p['name'] == crop_name), None)
+    
+    calculated_plan = []
+    if schedule_info:
+        for task in schedule_info:
+            task_details = {'task': task['task_title']}
+            if 'days_after_planting' in task and task['days_after_planting'] is not None:
+                due_date = planting_date + timedelta(days=task['days_after_planting'])
+                task_details['due_date'] = due_date.isoformat()
+            calculated_plan.append(task_details)
+    return calculated_plan
+
+def index(request):
+    user_plantings = request.session.get('user_plantings', [])
+    today = date.today()
+    
+    ongoing, upcoming, past = [], [], []
+
+    for i, planting_data in enumerate(user_plantings):
+        planting = planting_data.copy() # Work with a copy
+        planting['id'] = i
+        
+        # Convert the main planting_date
+        planting['planting_date'] = date.fromisoformat(planting['planting_date'])
+        
+        # --- FIX: Convert due_dates within the plan ---
+        for task in planting.get('plan', []):
+            if 'due_date' in task:
+                task['due_date'] = date.fromisoformat(task['due_date'])
+        
+        harvest_task = next((task for task in reversed(planting.get('plan', [])) if 'due_date' in task), None)
+        
+        if harvest_task:
+            harvest_date = harvest_task['due_date'] # It's already a date object
+            planting['harvest_date'] = harvest_date 
+
+            if harvest_date < today:
+                past.append(planting)
+            elif (harvest_date - today).days <= 7:
+                upcoming.append(planting)
+            else:
+                ongoing.append(planting)
+        else:
+            ongoing.append(planting)
+            
+    context = {'ongoing': ongoing, 'upcoming': upcoming, 'past': past}
+    return render(request, 'tracker/index.html', context)
+
+def add_planting_view(request):
+    plant_data = load_plant_data()
+    context = {
+        'plant_names': [p['name'] for p in plant_data['plants']],
+        'is_editing': False
+    }
+    return render(request, 'tracker/edit.html', context)
+
+def save_planting(request):
+    if request.method == 'POST':
+        crop_name = request.POST.get('crop_name')
+        planting_date_str = request.POST.get('planting_date')
+        batch_id = request.POST.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
+        notes = request.POST.get('notes', '')
+        
+        if not crop_name or not planting_date_str:
+            return redirect('index')
+
+        planting_date = date.fromisoformat(planting_date_str)
+        calculated_plan = _calculate_plan(crop_name, planting_date)
+        
+        user_plantings = request.session.get('user_plantings', [])
+        user_plantings.append({
+            'crop_name': crop_name,
+            'planting_date': planting_date.isoformat(),
+            'batch_id': batch_id,
+            'notes': notes,
+            'plan': calculated_plan
+        })
+        request.session['user_plantings'] = user_plantings
+        
+    return redirect('index')
+
+def edit_planting_view(request, planting_id):
+    user_plantings = request.session.get('user_plantings', [])
+    try:
+        planting_to_edit = user_plantings[planting_id].copy()
+        planting_to_edit['id'] = planting_id
+        # This conversion is for the form value, which is correct
+        planting_to_edit['planting_date_str'] = planting_to_edit['planting_date']
+    except (IndexError, KeyError):
+        return redirect('index')
+
+    plant_data = load_plant_data()
+    context = {
+        'plant_names': [p['name'] for p in plant_data['plants']],
+        'planting': planting_to_edit,
+        'is_editing': True
+    }
+    return render(request, 'tracker/edit.html', context)
+
+def update_planting(request, planting_id):
+    if request.method == 'POST':
+        user_plantings = request.session.get('user_plantings', [])
+        if planting_id >= len(user_plantings):
+            return redirect('index')
+
+        crop_name = request.POST.get('crop_name')
+        planting_date_str = request.POST.get('planting_date')
+        batch_id = request.POST.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
+        notes = request.POST.get('notes', '')
+
+        if not crop_name or not planting_date_str:
+            return redirect('index')
+
+        planting_date = date.fromisoformat(planting_date_str)
+        calculated_plan = _calculate_plan(crop_name, planting_date)
+        
+        user_plantings[planting_id] = {
+            'crop_name': crop_name,
+            'planting_date': planting_date.isoformat(),
+            'batch_id': batch_id,
+            'notes': notes,
+            'plan': calculated_plan
+        }
+        request.session['user_plantings'] = user_plantings
+
+    return redirect('index')
+
+def delete_planting(request, planting_id):
+    if request.method == 'POST':
+        user_plantings = request.session.get('user_plantings', [])
+        try:
+            del user_plantings[planting_id]
+            request.session['user_plantings'] = user_plantings
+        except IndexError:
+            pass
+    return redirect('index')
