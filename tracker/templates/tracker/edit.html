@@ -40,7 +40,6 @@
         .quote-panel {
             flex: 1; max-width: 250px; font-style: italic;
             text-align: center; font-size: 1em; padding: 1em;
-            /* Changed: Made text black and bold with a shadow for visibility */
             color: black;
             font-weight: 600;
             text-shadow: 0px 0px 3px rgba(255, 255, 255, 0.7);
@@ -87,7 +86,7 @@
 
     <main class="main-content-wrapper">
         <div class="quote-panel" id="quote-left"></div>
-        <form action="{% if is_editing %}{% url 'update_planting' planting.id %}{% else %}{% url 'save_planting' %}{% endif %}" method="post">
+        <form action="{% if is_editing %}{% url 'update_planting' planting.id %}{% else %}{% url 'save_planting' %}{% endif %}" method="post" enctype="multipart/form-data">
             <h2>{% if is_editing %}Edit Planting{% else %}Add a New Planting{% endif %}</h2>
             {% csrf_token %}
             
@@ -107,6 +106,13 @@
 
             <label for="notes">Notes:</label>
             <textarea id="notes" name="notes">{% if is_editing %}{{ planting.notes }}{% endif %}</textarea>
+
+            <label for="image">Image (optional):</label>
+            <input type="file" id="image" name="image" accept="image/*">
+            {% if is_editing and planting.image_url %}
+                <br>
+                <img src="{{ planting.image_url }}" alt="Current Image" style="max-width:140px;max-height:140px;border-radius:10px;">
+            {% endif %}
 
             <button type="submit">{% if is_editing %}Update Planting{% else %}Save Planting{% endif %}</button>
             <a href="{% url 'index' %}" class="back-link">&larr; Back to Dashboard</a>
