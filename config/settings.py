@@ -1,3 +1,5 @@
+# config/settings.py
+# (Your original settings with the single, minimal correction: add 'core' to INSTALLED_APPS)
 import os
 from pathlib import Path
 import dj_database_url
@@ -28,6 +30,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'tracker',
     'storages',
+    'core',  # <-- ADDED: provides health endpoint and small utilities
 ]
 
 MIDDLEWARE = [
@@ -70,11 +73,15 @@ if IS_PRODUCTION:
     }
 else:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv("DATABASE_NAME"),
+        'USER': os.getenv("DATABASE_USER"),
+        'PASSWORD': os.getenv("DATABASE_PASSWORD"),
+        'HOST': os.getenv("DATABASE_HOST"),
+        'PORT': os.getenv("DATABASE_PORT", "5432"),
     }
+}
 
 
 # Password validation

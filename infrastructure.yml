@@ -1,24 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  This template deploys an S3 bucket for static files and an RDS PostgreSQL
-  database for the TerraTrack Django application.
+  This template deploys an RDS PostgreSQL database for the TerraTrack Django application.
 
 Parameters:
   DBMasterUsername:
     Type: String
-    Description: Master username for the RDS database.
+    Description: Master username for the RDS database created.
     Default: terratrackadmin
 
   DBMasterPassword:
     Type: String
-    Description: Master password for the RDS database.
+    Description: Master password for the RDS database created.
     NoEcho: true
     MinLength: 8
 
   DBName:
     Type: String
-    Description: Name for the database.
-    Default: terratrackdb
+    Description: Name for the database created.
+    Default: terratrackdbname
 
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -26,49 +25,22 @@ Parameters:
 
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: "Select at least two subnets for the RDS instance. These should be in your default VPC."
+    Description: "Select at least two subnets for the RDS instance. These should be in your default VPC log."
 
 
 Resources:
-  # S3 Bucket for static files
-  StaticFilesBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub "terratrack-static-files-${AWS::AccountId}"
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
-      OwnershipControls:
-        Rules:
-          - ObjectOwnership: ObjectWriter
-
-  StaticFilesBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref StaticFilesBucket
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: "PublicReadGetObject"
-            Effect: "Allow"
-            Principal: "*"
-            Action: "s3:GetObject"
-            Resource: !Sub "arn:aws:s3:::${StaticFilesBucket}/*"
-
   # Database Security Group to allow inbound traffic from the application
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "Allow inbound traffic from Elastic Beanstalk"
+      GroupDescription: "Allow the inbound traffic from Elastic Beanstalk"
       VpcId: !Ref VpcId
 
   # Subnet group for the RDS instance
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: "Subnet group for the TerraTrack RDS instance"
+      DBSubnetGroupDescription: "Subnet group for this TerraTrack RDS instance"
       SubnetIds: !Ref SubnetIds
 
   # RDS Database Instance
@@ -88,9 +60,6 @@ Resources:
         - !GetAtt DBSecurityGroup.GroupId
 
 Outputs:
-  StaticFilesBucketName:
-    Description: "Name of the S3 bucket for static files"
-    Value: !Ref StaticFilesBucket
   RDSInstanceEndpoint:
     Description: "Endpoint of the RDS database instance"
     Value: !GetAtt RDSInstance.Endpoint.Address
