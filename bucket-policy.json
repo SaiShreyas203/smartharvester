@@ -1,4 +1,17 @@
 {
+<<<<<<< HEAD
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::terratrack-media/*"
+    }
+  ]
+}
+=======
     "Version": "2012-10-17",
     "Statement": [{
         "Sid": "PublicReadGetObject",
@@ -8,3 +21,4 @@
         "Resource": "arn:aws:s3:::terratrack-media/*"
     }]
 }
+>>>>>>> c6972ea31ea61d2a9cd7e8a70ba1e6ed0682ecd4
