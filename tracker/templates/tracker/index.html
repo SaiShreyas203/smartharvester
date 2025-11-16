@@ -6,10 +6,8 @@
     <title>TerraTrack</title>
     <style>
         :root {
-            /* Theme Colors */
             --primary-color: #5cb85c; --primary-darker: #4a934a; --text-color: #f8f9fa; --text-muted: #adb5bd;
             --surface-color: rgba(44, 48, 52, 0.85); --border-color: #495057;
-            /* Day/Night Cycle Colors */
             --day-bg-start: #87CEEB; --day-bg-end: #4682B4;
             --evening-bg-start: #f7b733; --evening-bg-end: #fc4a1a;
             --night-bg-start: #0c1445; --night-bg-end: #212529;
@@ -38,7 +36,6 @@
         #forest-mid { animation: parallax 40s linear infinite; z-index: 3; opacity: 0.8; }
         #forest-front { animation: parallax 20s linear infinite; z-index: 4; }
 
-        /* --- UI Elements --- */
         .header, .main-content-wrapper, .footer { z-index: 10; position: relative; }
         .header { display: flex; justify-content: space-between; align-items: center; padding: 1em 2em; background: rgba(0,0,0,0.1); backdrop-filter: blur(5px); border-bottom: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
         .logo-title { display: flex; align-items: center; gap: 0.75em; }
@@ -52,12 +49,7 @@
         .main-content-wrapper { display: flex; padding: 15px; gap: 10px; max-width: 1200px; margin: 0 auto; }
         .footer { text-align: center; padding: 1em; font-size: 0.9em; color: var(--text-muted); background: rgba(0,0,0,0.2); backdrop-filter: blur(5px); flex-shrink: 0; }
         
-        .content-column { 
-            flex: 1; 
-            display: flex; 
-            flex-direction: column; 
-            min-width: 0;
-        }
+        .content-column { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         .content-column h2 { color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5em; margin: 0 0 10px 0; }
         .planting-grid { perspective: 1000px; }
         
@@ -73,34 +65,13 @@
         .card-notes p { margin: 0; font-style: italic; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }
         .card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 0.5em; }
         .action-btn { background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 0.9em; line-height: 26px; text-align: center; }
-
         .card-steps { display: none; }
-
-        /* --- Modal Styles --- */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 1000; display: none; justify-content: center; align-items: center; }
         .modal-content { background: var(--surface-color); padding: 2em; border-radius: 12px; max-width: 500px; width: 90%; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.5); border-top: 5px solid var(--primary-color); }
         .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: white; font-size: 2em; cursor: pointer; }
         #modal-title { margin-top: 0; color: var(--primary-color); }
         #modal-notes p { font-style: italic; }
         #modal-steps-list { padding-left: 20px; }
-
-        /* --- Wildlife & Weather Animations (unchanged) --- */
-        .bird { position: absolute; width: 50px; height: 50px; background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M22,7.5C22,5.56 20.44,4 18.5,4C17.2,4 16.08,4.73 15.5,5.75L12,12L8.5,5.75C7.92,4.73 6.8,4 5.5,4C3.56,4 2,5.56 2,7.5C2,8.81 2.76,9.92 3.8,10.5L12,16L20.2,10.5C21.24,9.92 22,8.81 22,7.5Z"/></svg>'); z-index: 5; animation: fly-left linear infinite; }
-        #bird1 { top: 15%; animation-duration: 15s; } #bird2 { top: 25%; animation-duration: 20s; animation-delay: 3s; } #bird3 { top: 35%; animation-duration: 18s; animation-delay: 8s; }
-        #walking-deer { position: absolute; bottom: 100px; width: 100px; height: 100px; background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%234a4a4a" d="M12,2L10.5,3.5L12,5L14,3L12,2M19,12C19,11.5 18.8,11 18.5,10.5L17.5,9.5C17.2,9.2 16.8,9 16.5,9H13V6L12,7L11,6V9H7.5C6.9,9 6.5,9.4 6.5,10C6.5,10.6 6.9,11 7.5,11H8V13H6V12L3,15V21H5V18L6.5,17.5L7,21H9L8.5,18H9.5L10,21H12L11,14L12,13L14.5,15.5L16,14L15,12H16.5C17.9,12 19,10.9 19,9.5V9C19,8.4 18.6,8 18,8L17,8.5V6.5L18.5,5C19.8,6.2 20.5,7.9 20.5,9.5C20.5,10.9 19.9,12.1 19,13C19.6,13.6 20,14.5 20,15.5V21H22V15.5C22,13.6 20.7,12 19,12Z"/></svg>'); z-index: 3; animation: walk-across 50s linear infinite 10s; }
-        .firefly { position: absolute; width: 4px; height: 4px; background: #9acd32; border-radius: 50%; box-shadow: 0 0 10px #9acd32; animation: firefly-float 5s infinite ease-in-out; }
-        .raindrop { position: absolute; bottom: 100%; width: 1px; height: 50px; background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 100%); animation: rain-fall 0.5s linear infinite; }
-        .snowflake { position: absolute; top: -10px; width: 10px; height: 10px; background: white; border-radius: 50%; animation: snow-fall 10s linear infinite; }
-        .leaf { position: absolute; top: -10%; width: 20px; height: 20px; background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="green" d="M17,8C8,10 5.9,16.17 3.82,21.34L5.71,22L6.66,19.7C7.14,19.87 7.64,20 8,20C19,20 22,3 22,3C21,5 14,5.25 9,6.25C12,3.25 17,3 17,3V8Z" /></svg>'); animation: leaf-blow 7s linear infinite; }
-
-        @keyframes parallax { from { background-position-x: 0; } to { background-position-x: -200%; } }
-        @keyframes fly-left { from { left: 110%; } to { left: -10%; } }
-        @keyframes walk-across { from { left: -10%; transform: scaleX(1); } 49% { transform: scaleX(1); } 50% { left: 110%; transform: scaleX(-1); } 99% { transform: scaleX(-1); } to { left: -10%; transform: scaleX(1); } }
-        @keyframes firefly-float { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
-        @keyframes rain-fall { to { transform: translateY(100vh); } }
-        @keyframes snow-fall { to { transform: translateY(100vh) rotate(600deg); } }
-        @keyframes leaf-blow { from { transform: translateX(0vw) rotate(0deg); } to { transform: translateX(100vw) rotate(720deg); } }
-
         @media (max-width: 900px) {
             .main-content-wrapper { flex-direction: column; overflow: auto; }
             .header { flex-direction: column; gap: 1em; padding: 1em; }
@@ -140,13 +111,54 @@
             <div class="planting-grid">
                 {% for planting in upcoming %}
                 <div class="planting-card">
-                    <div class="card-actions"><a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a><form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">{% csrf_token %}<button type="submit" class="action-btn delete-btn" title="Delete">&times;</button></form></div>
-                    <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>{% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}</div>
-                    <div class="card-dates-row"><div class="date-group"><strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>{% if planting.harvest_date %}<div class="date-group"><strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}</div>
-                    {% if planting.notes %}<div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
-                    <div class="card-steps">{% for task_item in planting.plan %}<li>{{ task_item.task }}{% if task_item.due_date %} ({{ task_item.due_date|date:"M d" }}){% endif %}</li>{% endfor %}</div>
+                    <div class="card-actions">
+                        <a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a>
+                        <form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">
+                            {% csrf_token %}
+                            <button type="submit" class="action-btn delete-btn" title="Delete">&times;</button>
+                        </form>
+                    </div>
+                    <div class="card-top-header">
+                        <h3>{{ planting.crop_name }}</h3>
+                        {% if planting.batch_id %}
+                        <div class="batch-id">Batch ID: {{ planting.batch_id }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="card-dates-row">
+                        <div class="date-group">
+                            <strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}
+                        </div>
+                        {% if planting.harvest_date %}
+                        <div class="date-group">
+                            <strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if planting.image_url %}
+                        <div style="text-align:center;">
+                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
+                        </div>
+                    {% endif %}
+                    {% if planting.notes %}
+                    <div class="card-notes">
+                        <h4>Notes:</h4>
+                        <p>{{ planting.notes }}</p>
+                    </div>
+                    {% endif %}
+                    <div class="card-steps">
+                        {% for task_item in planting.plan %}
+                        <li>
+                            {{ task_item.task }}
+                            {% if task_item.due_date %}
+                                ({{ task_item.due_date|date:"M d" }})
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </div>
                 </div>
-                {% empty %}<p class="empty-state">No plantings in this category.</p>{% endfor %}
+                {% empty %}
+                <p class="empty-state">No plantings in this category.</p>
+                {% endfor %}
             </div>
         </div>
 
@@ -156,13 +168,54 @@
             <div class="planting-grid">
                 {% for planting in ongoing %}
                 <div class="planting-card">
-                    <div class="card-actions"><a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a><form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">{% csrf_token %}<button type="submit" class="action-btn delete-btn" title="Delete">&times;</button></form></div>
-                    <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>{% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}</div>
-                    <div class="card-dates-row"><div class="date-group"><strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>{% if planting.harvest_date %}<div class="date-group"><strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}</div>
-                    {% if planting.notes %}<div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
-                    <div class="card-steps">{% for task_item in planting.plan %}<li>{{ task_item.task }}{% if task_item.due_date %} ({{ task_item.due_date|date:"M d" }}){% endif %}</li>{% endfor %}</div>
+                    <div class="card-actions">
+                        <a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a>
+                        <form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">
+                            {% csrf_token %}
+                            <button type="submit" class="action-btn delete-btn" title="Delete">&times;</button>
+                        </form>
+                    </div>
+                    <div class="card-top-header">
+                        <h3>{{ planting.crop_name }}</h3>
+                        {% if planting.batch_id %}
+                        <div class="batch-id">Batch ID: {{ planting.batch_id }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="card-dates-row">
+                        <div class="date-group">
+                            <strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}
+                        </div>
+                        {% if planting.harvest_date %}
+                        <div class="date-group">
+                            <strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if planting.image_url %}
+                        <div style="text-align:center;">
+                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
+                        </div>
+                    {% endif %}
+                    {% if planting.notes %}
+                    <div class="card-notes">
+                        <h4>Notes:</h4>
+                        <p>{{ planting.notes }}</p>
+                    </div>
+                    {% endif %}
+                    <div class="card-steps">
+                        {% for task_item in planting.plan %}
+                        <li>
+                            {{ task_item.task }}
+                            {% if task_item.due_date %}
+                                ({{ task_item.due_date|date:"M d" }})
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </div>
                 </div>
-                {% empty %}<p class="empty-state">No other ongoing plantings.</p>{% endfor %}
+                {% empty %}
+                <p class="empty-state">No other ongoing plantings.</p>
+                {% endfor %}
             </div>
         </div>
 
@@ -172,20 +225,59 @@
             <div class="planting-grid">
                 {% for planting in past %}
                 <div class="planting-card">
-                    <div class="card-actions"><a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a><form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">{% csrf_token %}<button type="submit" class="action-btn delete-btn" title="Delete">&times;</button></form></div>
-                    <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>{% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}</div>
-                    <div class="card-dates-row"><div class="date-group"><strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>{% if planting.harvest_date %}<div class="date-group"><strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}</div>
-                    {% if planting.notes %}<div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
-                    <div class="card-steps">{% for task_item in planting.plan %}<li>{{ task_item.task }}{% if task_item.due_date %} ({{ task_item.due_date|date:"M d" }}){% endif %}</li>{% endfor %}</div>
+                    <div class="card-actions">
+                        <a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a>
+                        <form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">
+                            {% csrf_token %}
+                            <button type="submit" class="action-btn delete-btn" title="Delete">&times;</button>
+                        </form>
+                    </div>
+                    <div class="card-top-header">
+                        <h3>{{ planting.crop_name }}</h3>
+                        {% if planting.batch_id %}
+                        <div class="batch-id">Batch ID: {{ planting.batch_id }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="card-dates-row">
+                        <div class="date-group">
+                            <strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}
+                        </div>
+                        {% if planting.harvest_date %}
+                        <div class="date-group">
+                            <strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if planting.image_url %}
+                        <div style="text-align:center;">
+                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
+                        </div>
+                    {% endif %}
+                    {% if planting.notes %}
+                    <div class="card-notes">
+                        <h4>Notes:</h4>
+                        <p>{{ planting.notes }}</p>
+                    </div>
+                    {% endif %}
+                    <div class="card-steps">
+                        {% for task_item in planting.plan %}
+                        <li>
+                            {{ task_item.task }}
+                            {% if task_item.due_date %}
+                                ({{ task_item.due_date|date:"M d" }})
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </div>
                 </div>
-                {% empty %}<p class="empty-state">No past plantings.</p>{% endfor %}
+                {% empty %}
+                <p class="empty-state">No past plantings.</p>
+                {% endfor %}
             </div>
         </div>
     </main>
 
     <footer class="footer">Sow, Grow, Crop.</footer>
-
-    <!-- NEW: Modal structure -->
     <div id="details-modal" class="modal-overlay">
         <div class="modal-content">
             <button id="modal-close-btn" class="modal-close">&times;</button>
@@ -195,10 +287,8 @@
             <ul id="modal-steps-list"></ul>
         </div>
     </div>
-
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // All the theme and weather logic from before...
             const body = document.body;
             const weatherContainer = document.getElementById('weather-container');
             const firefliesContainer = document.getElementById('fireflies');
@@ -219,7 +309,7 @@
             setTimeOfDay(); setWeather(); setBackground();
             setInterval(setTimeOfDay, 5 * 60 * 1000); setInterval(setWeather, 2 * 60 * 1000); setInterval(setBackground, 10 * 60 * 1000);
 
-            // --- NEW: Modal Logic ---
+            // Modal Logic
             const modal = document.getElementById('details-modal');
             const modalTitle = document.getElementById('modal-title');
             const modalNotes = document.getElementById('modal-notes');
