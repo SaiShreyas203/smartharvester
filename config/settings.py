@@ -1,16 +1,11 @@
-# config/settings.py
-# (Your original settings with the single, minimal correction: add 'core' to INSTALLED_APPS)
 import os
 from pathlib import Path
 import dj_database_url
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- PRODUCTION/DEVELOPMENT SWITCH ---
 IS_PRODUCTION = os.environ.get('IS_PRODUCTION', 'False') == 'True'
 
-# --- SECURITY SETTINGS ---
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-default-development-key')
 DEBUG = not IS_PRODUCTION
 
@@ -19,8 +14,6 @@ if IS_PRODUCTION:
 else:
     ALLOWED_HOSTS = ['3.234.182.130', 'localhost', '127.0.0.1']
 
-
-# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -30,7 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'tracker',
     'storages',
-    'core',  # <-- ADDED: provides health endpoint and small utilities
+    'core',  # provides health endpoint and small utilities
 ]
 
 MIDDLEWARE = [
@@ -43,13 +36,12 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# CORRECTED: Pointing to the config urls.py
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')], # Ensure this is correct if you have a top-level templates dir
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -62,9 +54,7 @@ TEMPLATES = [
     },
 ]
 
-# CORRECTED: Pointing to the config wsgi.py
 WSGI_APPLICATION = 'config.wsgi.application'
-
 
 # --- DATABASE SETTINGS ---
 if IS_PRODUCTION:
@@ -83,8 +73,6 @@ else:
     }
 }
 
-
-# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -92,23 +80,22 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-
-# Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
+# -------- AWS S3 KEYS ALWAYS DEFINED! --------
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
+# region name can be set via env or default to us-east-1
+AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
 
 # --- STATIC FILES (CSS, JavaScript, Images) ---
 if IS_PRODUCTION:
-    AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
-    AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-    AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
-    AWS_S3_REGION_NAME = 'us-east-1'
-    AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
-
     STATIC_LOCATION = 'static'
     MEDIA_LOCATION = 'media'
 
@@ -128,5 +115,4 @@ else:
     MEDIA_URL = '/media/'
     MEDIA_ROOT = BASE_DIR / 'media'
         
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
