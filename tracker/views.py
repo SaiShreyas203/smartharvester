@@ -153,7 +153,7 @@ def update_planting(request, planting_id):
             )
             extension = image_file.name.split('.')[-1]
             key = f"media/planting_images/{uuid.uuid4()}.{extension}"
-            s3.upload_fileobj(image_file, settings.AWS_STORAGE_BUCKET_NAME, key, ExtraArgs={'ACL': 'public-read'})
+            s3.upload_fileobj(image_file, settings.AWS_STORAGE_BUCKET_NAME, key)
             image_url = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{key}"
 
         if not crop_name or not planting_date_str:
