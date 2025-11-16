@@ -17,7 +17,7 @@ DEBUG = not IS_PRODUCTION
 if IS_PRODUCTION:
     ALLOWED_HOSTS = [os.environ.get('EB_HOSTNAME', '.localhost')]
 else:
-    ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+    ALLOWED_HOSTS = ['3.234.182.130', 'localhost', '127.0.0.1']
 
 
 # Application definition
