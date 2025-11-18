@@ -200,14 +200,21 @@ def delete_planting(request, planting_id):
 # ========================
 def signup(request):
     if request.method == 'POST':
-        form = UserCreationForm(request.POST)
+        form = SignUpForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            auth_login(request, user)
-            return redirect('index')
+            form.save()
+            # Log the user in after signup, if desired
+            from django.contrib.auth import authenticate, login
+            user = authenticate(
+                username=form.cleaned_data['username'],
+                password=form.cleaned_data['password1']
+            )
+            if user is not None:
+                login(request, user)
+            return redirect('/')  # <--- redirect to homepage
     else:
-        form = UserCreationForm()
-    return render(request, 'tracker/signup.html', {'form': form})
+        form = SignUpForm()
+    return render(request, 'registration/signup.html', {'form': form})
 
 @login_required
 def profile(request):
