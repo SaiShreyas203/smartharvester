@@ -1,138 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Sign Up | SmartCrop{% endblock %}
-
 {% block content %}
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
 body {
     background: linear-gradient(140deg, #cdebe8 10%, #e1f4c4 90%);
     min-height: 100vh;
-    font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif;
 }
 .forest-bg {
-    position: absolute;
+    position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     z-index: 0;
     background: url('https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/forest-bg.svg') center no-repeat;
     background-size: cover;
-    opacity: 0.14;
+    opacity: 0.10;
     pointer-events: none;
 }
-.signup-container {
-    position: relative;
-    z-index: 1;
-    max-width: 440px;
-    margin: 7vh auto 0 auto;
-    background: rgba(255,255,255,0.86);
-    border-radius: 30px;
-    box-shadow: 0 8px 40px 0 #5b7d35a0, 0 1.5px 8px #9fc49855;
-    padding: 2.8rem 2.2rem 2.2rem 2.2rem;
-    text-align: center;
-    backdrop-filter: blur(4px);
-    transition: box-shadow 0.2s;
-}
-.signup-3d-hero {
-    width: 155px;
-    margin-bottom: 1.1rem;
-    margin-top: -18px;
-}
-.signup-title {
-    color: #628443;
-    text-shadow: 2px 2px 0 #e3eccf55;
-    margin-bottom: 0.6rem;
-    font-weight: 700;
-    font-size: 2.1rem;
-    letter-spacing: 1px;
-}
-.signup-subtitle {
-    font-size: 1.07rem;
-    color: #537135e1;
-    margin-bottom: 1.5rem;
-    font-weight: 500;
-}
-.signup-form input {
-    width: 92%;
-    margin: 0.8rem 0;
-    padding: 0.88rem 1rem;
-    border-radius: 13px;
-    border: 1.3px solid #95b97b;
-    background: rgba(236, 247, 228, 0.78);
-    font-size: 1.11rem;
-    box-shadow: 0 1.5px 7px #bbdfbd20 inset;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-.signup-form input:focus {
-    border-color: #628443;
-    outline: none;
-    box-shadow: 0 4px 26px 0 #abd29022;
-}
-.form-error {
-    color: #c0392b;
-    margin-bottom: 0.9rem;
-    font-size: 1.08em;
-    border-left: 3px solid #c0392b38;
-    background: #f9e9e9ee;
-    padding: 0.4em 0.8em;
-    border-radius: 8px;
-}
-.signup-btn {
-    width: 60%;
-    margin: 1.7rem auto 1.1rem auto;
-    padding: 1.01rem 0;
-    border: none;
-    border-radius: 15px;
-    background: linear-gradient(100deg, #8ad07e 0%, #3e732e 100%);
-    color: #fff;
-    font-size: 1.16rem;
-    font-weight: 700;
-    box-shadow: 0 3px 13px #48782433;
-    transition: background 0.2s, box-shadow 0.2s;
-    cursor: pointer;
-}
-.signup-btn:hover {
-    background: linear-gradient(100deg, #aedf9e 0%, #628443 100%);
-    box-shadow: 0 8px 24px #62844342;
-}
-.signup-info {
-    font-size: .95em;
-    color: #546a42b5;
-    margin: 0.6em 0 1.2em 0;
-}
-.goto-login {
-    font-size: 1.05rem;
-    color: #304f23;
-}
-.goto-login a {
-    color: #628443;
-    font-weight: 600;
-    text-decoration: underline dotted;
-}
-.goto-login a:hover { color: #317440; }
-@media (max-width: 600px) {
-    .signup-container { max-width: 99vw; padding: 1.1rem 0.1rem; }
-    .signup-3d-hero { width: 102px; }
-    .signup-title { font-size: 1.23rem; }
-}
 </style>
-
 <div class="forest-bg"></div>
-<div class="signup-container">
-    <img class="signup-3d-hero" src="https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/3d-tree-signup.svg" alt="3D tree for signup">
-    <div class="signup-title">Join SmartCrop</div>
-    <div class="signup-subtitle">Connect. Cultivate. Grow smarter with us!</div>
-    <div class="signup-info">
-        {% if form.errors %}
-        <div class="form-error">
-            Please fix the issues below and try again.
+<div class="container" style="min-height:100vh; display:flex; align-items:center;">
+  <div class="row justify-content-center w-100">
+    <div class="col-12 col-md-8 col-lg-6">
+      <div class="card shadow-lg border-0 mt-5">
+        <div class="card-body p-4">
+          <div class="text-center mb-4">
+            <img src="https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/3d-tree-signup.svg" alt="Forest sign up illustration" width="105">
+            <h3 class="mt-2 mb-0" style="color:#628443;">Join SmartCrop</h3>
+            <div class="text-muted mb-2" style="font-size:1.08em;">Connect. Cultivate. Grow smarter with us!</div>
+          </div>
+          {% if form.errors %}
+            <div class="alert alert-danger mb-3" role="alert">
+              Please fix the issues below and try again.
+            </div>
+          {% endif %}
+          <form method="post" autocomplete="on">
+            {% csrf_token %}
+            {% for field in form %}
+              <div class="mb-3">
+                <label class="form-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% for error in field.errors %}
+                  <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-success w-100 py-2" style="background: linear-gradient(100deg, #8ad07e 0%, #3e732e 100%); border:none;">Sign Up</button>
+          </form>
+          <div class="text-center mt-4">
+            <hr>
+            <span class="text-muted" style="font-size:.98em;">
+              Already have an account?
+              <a href="{% url 'login' %}" class="fw-semibold" style="color:#628443;">Login</a>
+            </span>
+          </div>
         </div>
-        {% endif %}
+      </div>
     </div>
-    <form class="signup-form" method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button class="signup-btn" type="submit">Sign Up</button>
-    </form>
-    <div class="goto-login">
-        Already have an account? <a href="{% url 'login' %}">Login</a>
-    </div>
+  </div>
 </div>
 {% endblock %}
