@@ -6,91 +6,69 @@
 <style>
 body {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1cb5e0 0%, #42e695 100%);
   font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif;
-  overflow-x: hidden;
+  background: linear-gradient(130deg, #183f24c9 0%, #246246d9 100%), url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=900&q=80') no-repeat center center fixed;
+  background-size: cover;
+  position: relative;
 }
-.bg-mountain-3d {
+.brand-slogan {
   position: fixed;
-  width: 100vw;
-  height: 100vh;
-  left: 0; top: 0; z-index: 0;
-  background: radial-gradient(ellipse at 50% 20%, #79ffba66 0%, transparent 75%),
-              linear-gradient(to bottom, #239671 10%, #65e3c8 97%);
+  top: 24px;
+  left: 0; right: 0;
+  z-index: 10;
+  text-align: center;
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 0 5px 24px #1c2e262e, 0 8px 44px #155c2c38;
+  opacity: 0.15;
   pointer-events: none;
 }
-@media (min-width: 700px) {
-  .bg-mountain-3d {
-    background-image:
-      url('https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/3d-mountains-night.svg'),
-      linear-gradient(to bottom, #239671 18%, #65e3c8 92%);
-    background-position: center 60px, center center;
-    background-repeat: no-repeat;
-    background-size: 650px auto, cover;
-  }
-}
-.card-3d {
-  margin: 8vh auto 0 auto;
+.card-3d-signup {
+  margin: 12vh auto 0 auto;
   max-width: 430px;
-  border-radius: 26px;
-  background: rgba(255,255,255,0.96);
-  box-shadow: 0 14px 60px 0 #193c3d89, 0 2px 10px #32b98f33;
-  overflow: hidden;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.97);
+  box-shadow: 0 15px 48px 0 #1e273a3b, 0 1.5px 12px #94ebbe2a;
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  backdrop-filter: blur(2.5px);
+  overflow: hidden;
 }
 .card-top-3d {
-  background: url('https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/3d-mountains-night.svg') center top no-repeat, 
-              linear-gradient(180deg, #50bc94 65%, #fff0 100%);
-  background-size: 130% 120px, cover;
-  height: 125px;
+  background: linear-gradient(120deg, #61c07a 55%, #0aad5e 100%);
+  height: 58px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  color: #e7ffef;
+  font-size: 1.25rem;
+  font-weight: 700;
   position: relative;
 }
-.signup-heading-3d {
-  width: 100%;
-  text-align: center;
-  color: #fff;
-  font-size: 1.38rem;
-  font-weight: 700;
-  margin-bottom: 6px;
-  text-shadow: 0 5px 32px #396c5229, 0 1.5px 2px #202c3b44;
-  letter-spacing: 1px;
-  line-height: 1.12;
-}
-.card-desc-3d {
-  color: #d5fbe0;
-  text-align: center;
-  font-size: 0.99em;
-  font-weight: 400;
-  opacity: 0.93;
-  margin-bottom: 25px;
-  margin-top: -4px;
-}
 .card-body-3d {
-  padding: 32px 28px 22px 28px;
+  padding: 36px 28px 25px 28px;
 }
 .signup-label {
-  margin-bottom: 0.4em;
-  color: #32654b;
+  margin-bottom: 0.5em;
+  color: #13795e;
   font-weight: 600;
-  font-size: 1.1rem;
+  font-size: 1.07rem;
   letter-spacing: 0.5px;
   text-align: center;
 }
 .signup-input-group {
-  border-radius: 15px;
-  box-shadow: 0 3px 20px #8edef821;
-  background: #e9f9f2ea;
+  border-radius: 13px;
+  box-shadow: 0 3px 20px #57c4921c;
+  background: #eaf9f4fa;
   margin-bottom: 20px;
 }
 .signup-input-group input, .signup-input-group select {
   background: transparent !important;
   border: none !important;
-  font-size: 1.08rem;
-  color: #184f3b;
+  font-size: 1.13rem;
+  color: #245b34;
 }
 .signup-input-group .form-control:focus {
   box-shadow: none;
@@ -98,84 +76,81 @@ body {
 .input-group-text {
   background: transparent;
   border: none;
-  color: #08ad8f;
-  font-size: 1.22em;
+  color: #16b158;
+  font-size: 1.19em;
 }
 .signup-btn-3d {
   width: 100%;
-  padding: 0.81em 0;
+  padding: 0.82em 0;
   border: none;
-  border-radius: 14px;
-  background: linear-gradient(100deg, #49e093 0%, #1cb5e0 100%);
+  border-radius: 11px;
+  background: linear-gradient(100deg, #27e89a 0%, #188a64 100%);
   color: #fff;
   font-size: 1.13rem;
   font-weight: 700;
-  box-shadow: 0 3px 20px #48e4a766;
-  transition: background 0.22s, box-shadow 0.20s;
-  letter-spacing: 1.1px;
+  box-shadow: 0 3px 18px #2dc18540;
+  transition: background 0.22s, box-shadow 0.2s;
+  letter-spacing: 1.08px;
 }
 .signup-btn-3d:hover {
-  background: linear-gradient(100deg, #6ffcbe 0%, #3386ad 100%);
-  box-shadow: 0 8px 26px #44c38649;
+  background: linear-gradient(100deg, #45f5b5 0%, #135d45 100%);
 }
 .login-row-3d {
-  text-align: center; font-size: 1em; margin-top: 1.32em;
+  text-align: center; font-size: 1em; margin-top: 1.27em;
 }
 .login-row-3d a { color: #27b48f; font-weight: 600; }
-.login-row-3d a:hover { color: #13725e; }
+.login-row-3d a:hover { color: #157156; }
 .form-error-3d {
   color: #c0392b;
   background: #fdeeeecc;
   border-radius: 10px;
   padding: 0.55em 1em;
-  margin-bottom: 0.90em;
+  margin-bottom: 0.93em;
   border-left: 4px solid #e15f49aa;
   font-size: 1.07em;
   font-weight: 500;
 }
 </style>
-<div class="bg-mountain-3d"></div>
-<div class="card-3d">
+<div class="brand-slogan">Your AI Harvester Assistant</div>
+<div class="card-3d-signup">
   <div class="card-top-3d">
-    <div style="width:100%;position:absolute;top:29px;left:0;">
-      <div class="signup-heading-3d">Create your account</div>
-      <div class="card-desc-3d px-2" style="margin-bottom:0;">
-        Get started with SmartCrop & join our community!
-      </div>
-    </div>
+    <span>Register for SmartCrop</span>
   </div>
   <div class="card-body-3d">
-    <div class="mb-3 signup-label">SIGN UP</div>
+    <div class="mb-2 signup-label">SIGN UP</div>
     {% if form.errors %}
       <div class="form-error-3d">Please fix the issues below and try again.</div>
     {% endif %}
     <form method="post" autocomplete="on">
       {% csrf_token %}
-      {% for field in form %}
-        <div class="input-group signup-input-group mb-2">
-          <span class="input-group-text">
-            {% if field.name == "username" %}
-            <i class="bi bi-person-circle"></i>
-            {% elif field.name == "email" %}
-            <i class="bi bi-envelope"></i>
-            {% elif field.name == "password1" or field.name == "password2" or field.name == "password" %}
-            <i class="bi bi-lock-fill"></i>
-            {% elif field.name == "first_name" %}
-            <i class="bi bi-type"></i>
-            {% elif field.name == "last_name" %}
-            <i class="bi bi-person-badge"></i>
-            {% elif field.name == "country" %}
-            <i class="bi bi-globe"></i>
-            {% else %}
-            <i class="bi bi-dot"></i>
-            {% endif %}
-          </span>
-          {{ field }}
-        </div>
-        {% for error in field.errors %}
-          <div class="text-danger small mb-2">{{ error }}</div>
-        {% endfor %}
-      {% endfor %}
+      <div class="input-group signup-input-group mb-2">
+        <span class="input-group-text"><i class="bi bi-person-circle"></i></span>
+        <input type="text" class="form-control" name="username" placeholder="Username" required>
+      </div>
+      <div class="input-group signup-input-group mb-2">
+        <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+        <input type="email" class="form-control" name="email" placeholder="Email" required>
+      </div>
+      <div class="input-group signup-input-group mb-2">
+        <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+        <input type="password" class="form-control" name="password1" placeholder="Password" required>
+      </div>
+      <div class="input-group signup-input-group mb-2">
+        <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+        <input type="password" class="form-control" name="password2" placeholder="Confirm Password" required>
+      </div>
+      <div class="input-group signup-input-group mb-2">
+        <span class="input-group-text"><i class="bi bi-globe-asia-australia"></i></span>
+        <select class="form-control" name="country" required>
+          <option value="" disabled selected>Select Country</option>
+          <option>India</option>
+          <option>United States</option>
+          <option>Canada</option>
+          <option>United Kingdom</option>
+          <option>Australia</option>
+          <!-- Add more countries as needed -->
+        </select>
+      </div>
       <button type="submit" class="signup-btn-3d">Sign Up</button>
     </form>
     <div class="login-row-3d">
