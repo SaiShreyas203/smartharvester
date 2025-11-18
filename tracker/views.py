@@ -198,7 +198,7 @@ def delete_planting(request, planting_id):
 # ========================
 # USER SIGNUP VIEW
 # ========================
-ddef signup(request):
+def signup(request):
     if request.method == 'POST':
         form = SignUpForm(request.POST)
         if form.is_valid():
