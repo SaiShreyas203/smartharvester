@@ -5,6 +5,8 @@ from django.conf import settings
 import os
 import boto3
 import uuid
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth import login as auth_login
 
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
@@ -184,3 +186,14 @@ def delete_planting(request, planting_id):
         except IndexError:
             pass
     return redirect('index')
+
+def signup(request):
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            auth_login(request, user)
+            return redirect('index')
+    else:
+        form = UserCreationForm()
+    return render(request, 'tracker/signup.html', {'form': form})
