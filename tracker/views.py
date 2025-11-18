@@ -5,10 +5,12 @@ from django.conf import settings
 import os
 import boto3
 import uuid
+
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import login as auth_login
 
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
+
 
 def load_plant_data():
     with open(DATA_FILE_PATH, 'r') as f:
@@ -187,6 +189,9 @@ def delete_planting(request, planting_id):
             pass
     return redirect('index')
 
+# ========================
+# USER SIGNUP VIEW
+# ========================
 def signup(request):
     if request.method == 'POST':
         form = UserCreationForm(request.POST)
