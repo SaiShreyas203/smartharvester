@@ -12,6 +12,9 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
+from django.contrib.auth import authenticate, login
+from django.shortcuts import render, redirect
+
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
 
@@ -209,3 +212,14 @@ def signup(request):
 @login_required
 def profile(request):
     return render(request, 'profile.html')
+
+def login_view(request):
+    # Basic example; improve as needed!
+    if request.method == 'POST':
+        username = request.POST['username']
+        password = request.POST['password']
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request, user)
+            return redirect('index')  # or your homepage
+    return render(request, 'registration/login.html')
