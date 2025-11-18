@@ -1,105 +1,166 @@
 {% extends "base.html" %}
 {% block title %}Login | SmartCrop{% endblock %}
+
 {% block content %}
 <style>
 body {
-    background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
-    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg, #cdebe8 0%, #e1f4c4 100%);
     min-height: 100vh;
+    font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif;
+}
+.forest-bg {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 0;
+    background: url('https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/forest-bg.svg') center no-repeat;
+    background-size: cover;
+    opacity: 0.14;
+    pointer-events: none;
 }
 .login-container {
-    background: #fff;
-    max-width: 400px;
-    margin: 5vh auto;
-    border-radius: 24px;
-    box-shadow: 0 8px 32px #86ac47bb;
-    padding: 2.5rem;
-    text-align: center;
     position: relative;
+    z-index: 1;
+    max-width: 420px;
+    margin: 7vh auto 0 auto;
+    background: rgba(255,255,255,0.86);
+    border-radius: 28px;
+    box-shadow: 0 8px 40px 0 #5b7d35a0, 0 1.5px 8px #9fc49855;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    text-align: center;
+    backdrop-filter: blur(4px);
+    transition: box-shadow 0.2s;
 }
-.login-hero {
+.login-3d-hero {
+    width: 140px;
     margin-bottom: 1rem;
-    width: 120px;
-    height: 120px;
-    display: block;
-    margin-left: auto;
-    margin-right: auto;
 }
-h1 {
-    color: #478c33;
-    margin-bottom: 1.5rem;
+.title {
+    color: #628443;
+    text-shadow: 2px 2px 0 #e3eccf55;
+    margin-bottom: 0.6rem;
+    font-weight: 700;
+    font-size: 2.2rem;
+    letter-spacing: 1px;
 }
-input[type=text], input[type=password] {
-    width: 80%;
-    padding: 0.7rem;
-    margin: 0.6rem 0;
-    background: #f4fff2;
-    border-radius: 8px;
-    border: 1px solid #c9e7cf;
-    transition: box-shadow 0.3s;
+.subtitle {
+    font-size: 1.04rem;
+    color: #537135e1;
+    margin-bottom: 1.8rem;
+    font-weight: 500;
 }
-input[type=text]:focus, input[type=password]:focus {
+.login-container form input[type=text],
+.login-container form input[type=password] {
+    width: 92%;
+    margin: 0.7rem 0;
+    padding: 0.88rem 1rem;
+    border-radius: 13px;
+    border: 1.3px solid #95b97b;
+    background: rgba(234, 246, 231, 0.78);
+    font-size: 1.11rem;
+    box-shadow: 0 1.5px 7px #bbdfbd20 inset;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.login-container form input:focus {
+    border-color: #628443;
     outline: none;
-    box-shadow: 0 0 5px #47994777;
+    box-shadow: 0 4px 28px 0 #abd29022;
 }
-button {
-    background: linear-gradient(90deg, #b6e388 0%, #478c33 100%);
-    color: #fff;
-    font-weight: bold;
-    padding: 0.8rem 2rem;
-    margin-top: 1rem;
+.form-error {
+    color: #c0392b;
+    margin-bottom: 0.6rem;
+    font-size: 1.05em;
+    border-left: 3px solid #c0392b44;
+    background: #f9e9e9ee;
+    padding: 0.5em 1em;
+    border-radius: 8px;
+}
+.login-btn {
+    width: 60%;
+    margin: 1.5rem auto 1.1rem auto;
+    padding: 0.95rem 0;
     border: none;
-    border-radius: 20px;
-    transition: background 0.3s;
-    box-shadow: 0 4px 16px #abbe56aa;
+    border-radius: 15px;
+    background: linear-gradient(100deg, #8ad07e 0%, #3e732e 100%);
+    color: #fff;
+    font-size: 1.14rem;
+    font-weight: 700;
+    box-shadow: 0 3px 12px #6dac3977;
+    transition: background 0.2s, box-shadow 0.2s;
+    cursor: pointer;
 }
-button:hover {
-    background: linear-gradient(90deg, #6ae676 0%, #225d1f 100%);
+.login-btn:hover {
+    background: linear-gradient(100deg, #aedf9e 0%, #628443 100%);
+    box-shadow: 0 8px 26px #62844342;
 }
-.links {
+.login-links {
     display: flex;
     justify-content: space-between;
-    margin: 1rem 0;
+    margin-bottom: 1.8rem;
+    font-size: .99rem;
 }
-a {
-    color: #478c33;
+.login-links label {
+    cursor: pointer;
+    user-select: none;
+}
+.login-links a {
+    color: #5e7536;
+    opacity: 0.88;
     text-decoration: underline;
 }
-a:hover {
-    color: #1B441B;
+.login-links a:hover {
+    color: #2e4b18;
 }
-hr {
-    margin: 2rem 0 1rem 0;
-    border: none;
-    border-top: 1px dashed #86ac47;
+.login-separator {
+    margin: 1.6rem auto 0.8rem auto;
+    width: 80%;
+    border-top: 1.5px dashed #a2be81;
+    opacity: .68;
+}
+.signup-link {
+    font-size: 1.05rem;
+    color: #304f23;
+}
+.signup-link a {
+    color: #628443;
+    font-weight: 600;
+    text-decoration: underline dotted;
+}
+.signup-link a:hover {
+    color: #317440;
+}
+@media (max-width: 600px) {
+    .login-container { max-width: 98vw; padding: 1.2rem 0.2rem; }
+    .login-3d-hero { width: 95px; }
+    .title { font-size: 1.38rem; }
 }
 </style>
 
+<div class="forest-bg"></div>
 
 <div class="login-container">
-    <img src="https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/tractor.svg" alt="Farm Tractor" class="login-hero"/>
-
-    <h1>SmartCrop</h1>
-    <p style="margin-bottom:2rem; color:#478c33b0;">Grow Smarter. Harvest Better.</p>
+    <img class="login-3d-hero" src="https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/3d-tree.svg" alt="Forestry/Tree 3D Illustration">
+    <div class="title">SmartCrop</div>
+    <div class="subtitle">Green your future. Harvest better.</div>
     {% if form.errors %}
-    <p style="color:red;">Incorrect username or password.</p>
+        <div class="form-error">
+            Please check your username and password.
+        </div>
     {% endif %}
-
     <form method="post">
         {% csrf_token %}
-        <input type="text" name="username" placeholder="Username or Email" required>
+        <input type="text" name="username" placeholder="Username or Email" required autocomplete="username">
         <br>
-        <input type="password" name="password" placeholder="Password" required>
+        <input type="password" name="password" placeholder="Password" required autocomplete="current-password">
         <br>
-        <button type="submit">Login</button>
-        <div class="links">
-            <label style="font-size:0.95em;"><input type="checkbox" name="remember"> Remember me</label>
+        <button class="login-btn" type="submit">Log in</button>
+        <div class="login-links">
+            <label><input type="checkbox" name="remember"> Remember me</label>
             <a href="{% url 'password_reset' %}">Forgot password?</a>
         </div>
     </form>
-    <hr/>
-    <span style="font-size:1em;">First time here?
-        <a href="{% url 'signup' %}">Create an account</a>
-    </span>
+    <div class="login-separator"></div>
+    <div class="signup-link">
+        New to SmartCrop? <a href="{% url 'signup' %}">Sign Up</a>
+    </div>
 </div>
 {% endblock %}
