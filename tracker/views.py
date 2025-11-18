@@ -198,20 +198,23 @@ def delete_planting(request, planting_id):
 # ========================
 # USER SIGNUP VIEW
 # ========================
-def signup(request):
+ddef signup(request):
     if request.method == 'POST':
         form = SignUpForm(request.POST)
         if form.is_valid():
-            form.save()
-            # Log the user in after signup, if desired
-            from django.contrib.auth import authenticate, login
-            user = authenticate(
+            user = User.objects.create_user(
                 username=form.cleaned_data['username'],
-                password=form.cleaned_data['password1']
+                email=form.cleaned_data['email'],
+                password=form.cleaned_data['password1'],
             )
+            UserProfile.objects.create(
+                user=user,
+                country=form.cleaned_data['country']
+            )
+            user = authenticate(username=form.cleaned_data['username'], password=form.cleaned_data['password1'])
             if user is not None:
                 login(request, user)
-            return redirect('/')  # <--- redirect to homepage
+            return redirect('/')
     else:
         form = SignUpForm()
     return render(request, 'registration/signup.html', {'form': form})

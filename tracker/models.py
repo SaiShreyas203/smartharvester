@@ -1,12 +1,9 @@
 from django.db import models
+from django.contrib.auth.models import User
 
-class Planting(models.Model):
-    crop_name = models.CharField(max_length=100)
-    planting_date = models.DateField()
-    batch_id = models.CharField(max_length=100, blank=True)
-    notes = models.TextField(blank=True)
-    image = models.ImageField(upload_to="planting_images/", blank=True, null=True)
-    plan = models.JSONField(blank=True, null=True)  # Optionally auto-set on save
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    country = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
-        return f"{self.crop_name} ({self.planting_date})"
+        return f"{self.user.username}'s profile"
