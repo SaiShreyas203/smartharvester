@@ -9,6 +9,9 @@ import uuid
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import login as auth_login
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
 
@@ -202,3 +205,7 @@ def signup(request):
     else:
         form = UserCreationForm()
     return render(request, 'tracker/signup.html', {'form': form})
+
+@login_required
+def profile(request):
+    return render(request, 'profile.html')
