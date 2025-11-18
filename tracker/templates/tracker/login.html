@@ -1,13 +1,105 @@
-<!-- templates/login.html -->
 {% extends "base.html" %}
+{% block title %}Login | SmartCrop{% endblock %}
 {% block content %}
-  <h2>Login</h2>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Login</button>
-  </form>
-  {% if form.errors %}
-    <p style="color: red;">Invalid credentials, please try again.</p>
-  {% endif %}
+<style>
+body {
+    background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    min-height: 100vh;
+}
+.login-container {
+    background: #fff;
+    max-width: 400px;
+    margin: 5vh auto;
+    border-radius: 24px;
+    box-shadow: 0 8px 32px #86ac47bb;
+    padding: 2.5rem;
+    text-align: center;
+    position: relative;
+}
+.login-hero {
+    margin-bottom: 1rem;
+    width: 120px;
+    height: 120px;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+h1 {
+    color: #478c33;
+    margin-bottom: 1.5rem;
+}
+input[type=text], input[type=password] {
+    width: 80%;
+    padding: 0.7rem;
+    margin: 0.6rem 0;
+    background: #f4fff2;
+    border-radius: 8px;
+    border: 1px solid #c9e7cf;
+    transition: box-shadow 0.3s;
+}
+input[type=text]:focus, input[type=password]:focus {
+    outline: none;
+    box-shadow: 0 0 5px #47994777;
+}
+button {
+    background: linear-gradient(90deg, #b6e388 0%, #478c33 100%);
+    color: #fff;
+    font-weight: bold;
+    padding: 0.8rem 2rem;
+    margin-top: 1rem;
+    border: none;
+    border-radius: 20px;
+    transition: background 0.3s;
+    box-shadow: 0 4px 16px #abbe56aa;
+}
+button:hover {
+    background: linear-gradient(90deg, #6ae676 0%, #225d1f 100%);
+}
+.links {
+    display: flex;
+    justify-content: space-between;
+    margin: 1rem 0;
+}
+a {
+    color: #478c33;
+    text-decoration: underline;
+}
+a:hover {
+    color: #1B441B;
+}
+hr {
+    margin: 2rem 0 1rem 0;
+    border: none;
+    border-top: 1px dashed #86ac47;
+}
+</style>
+
+
+<div class="login-container">
+    <img src="https://cdn.jsdelivr.net/gh/saishreyas203/agro-assets@main/tractor.svg" alt="Farm Tractor" class="login-hero"/>
+
+    <h1>SmartCrop</h1>
+    <p style="margin-bottom:2rem; color:#478c33b0;">Grow Smarter. Harvest Better.</p>
+    {% if form.errors %}
+    <p style="color:red;">Incorrect username or password.</p>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        <input type="text" name="username" placeholder="Username or Email" required>
+        <br>
+        <input type="password" name="password" placeholder="Password" required>
+        <br>
+        <button type="submit">Login</button>
+        <div class="links">
+            <label style="font-size:0.95em;"><input type="checkbox" name="remember"> Remember me</label>
+            <a href="{% url 'password_reset' %}">Forgot password?</a>
+        </div>
+    </form>
+    <hr/>
+    <span style="font-size:1em;">First time here?
+        <a href="{% url 'signup' %}">Create an account</a>
+    </span>
+</div>
 {% endblock %}
