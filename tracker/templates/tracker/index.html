@@ -389,10 +389,9 @@
                     <input type="password" name="password" placeholder="New password (optional)" />
                 </div>
                 <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:8px;">
-                    <button type="button" class="add-button" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color);"
-                            onclick="window.location.href='{% url 'login' %}'">
+                    <a href="{% url 'logout' %}" class="add-button" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color); text-decoration:none; text-align:center;">
                         Logout
-                    </button>
+                    </a>
                     <button type="submit" class="add-button">Save</button>
                 </div>
             </form>
