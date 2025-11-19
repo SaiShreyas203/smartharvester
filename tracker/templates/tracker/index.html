@@ -1,346 +1,340 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TerraTrack</title>
-    <style>
-        :root {
-            --primary-color: #5cb85c; --primary-darker: #4a934a; --text-color: #f8f9fa; --text-muted: #adb5bd;
-            --surface-color: rgba(44, 48, 52, 0.85); --border-color: #495057;
-            --day-bg-start: #87CEEB; --day-bg-end: #4682B4;
-            --evening-bg-start: #f7b733; --evening-bg-end: #fc4a1a;
-            --night-bg-start: #0c1445; --night-bg-end: #212529;
-            --sun-color: #f9d71c; --moon-color: #f4f6f0;
-        }
-        html { height: 100%; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            margin: 0; display: flex; flex-direction: column;
-            position: relative; color: var(--text-color);
-            transition: background 2s ease;
-            min-height: 100%; 
-        }
-        body.day { background: linear-gradient(to bottom, var(--day-bg-start), var(--day-bg-end)) no-repeat; background-attachment: fixed; }
-        body.evening { background: linear-gradient(to bottom, var(--evening-bg-start), var(--evening-bg-end)) no-repeat; background-attachment: fixed; }
-        body.night { background: linear-gradient(to bottom, var(--night-bg-start), var(--night-bg-end)) no-repeat; background-attachment: fixed; }
+{% extends "base.html" %}
+{% load static %}
+{% block title %}TerraTrack | Home{% endblock %}
+{% block content %}
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
 
-        .scene, #weather-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
-        .forest-layer { position: absolute; bottom: 0; left: 0; width: 200%; height: 100%; background-repeat: repeat-x; background-position: bottom left; transition: background-image 2s ease-in-out; }
-        #sky-orb { position: absolute; top: 10%; right: 15%; width: 60px; height: 60px; border-radius: 50%; transition: all 2s ease; }
-        body.day #sky-orb { background: var(--sun-color); box-shadow: 0 0 30px var(--sun-color); }
-        body.evening #sky-orb { background: #ff8c00; box-shadow: 0 0 40px #ff8c00; }
-        body.night #sky-orb { background: var(--moon-color); box-shadow: 0 0 30px var(--moon-color); }
+<style>
+/* ... merge your original and new dashboard styles as in previous answer ... */
+.profile-avatar {
+  width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2.5px solid #61c07a;
+  background: #e9fff8; text-align:center; font-weight:bold; color:#188a64; font-size:1.22em; line-height:40px;
+  display: flex; align-items: center; justify-content: center;
+}
+.header-bar, .header { display: flex; align-items: center; justify-content: space-between; gap: 1.2em; }
+.header-profilegroup { display: flex; align-items: center; gap: .6em; }
+.dashboard-cards { display: flex; gap: 1.1em; flex-wrap: wrap; justify-content: center; margin-bottom:2.1em;}
+.dashboard-card { background: rgba(255,255,255,0.95); border-radius: 1.35em; box-shadow: 0 8px 28px #1a4a2b23,
+0 1.5px 6px #79d9b429; padding: 1.2em 1.5em 1em 1.3em; min-width: 155px; flex: 1 0 150px; display: flex;
+flex-direction: column; align-items: flex-start; gap: 0.17em; font-weight: 600; justify-content:
+center; text-align: left; }
+.dashboard-card .icon { font-size: 2em; margin-bottom: .2em; }
+@media(max-width:800px){.dashboard-cards{flex-direction:column;align-items:stretch;}.dashboard-card{min-width:unset;}}
+.welcome-banner { background: linear-gradient(100deg, #def7e9 70%, #edfdf1 100%); border-radius: 13px; color: #11614b;
+padding: 0.9em 1.4em; margin-bottom: 1.6em; font-size: 1.18em; box-shadow: 0 2px 19px #00ae5e0c; letter-spacing: 0.1em; }
+.add-button { background: linear-gradient(100deg, #2ee8b2 0%, #319a77 100%); color: #fff !important; border-radius:
+12px; padding: .67em 1.3em; font-size: 1.08em; font-weight: 700; margin-right: .5em; box-shadow: 0 4px 16px #1bef9a2a;
+border: none; transition: background 0.14s, box-shadow 0.14s; display: inline-flex; align-items: center; gap: 0.3em; }
+.add-button:hover { background: linear-gradient(100deg, #36ffc1 0%, #1c6c51 100%); text-decoration: none; }
+.dropdown-menu-end { right: 0; left: auto; }
+.main-content-wrapper { padding-top: 1em; }
+.empty-category { background: #f0fffa; border-radius: 10px; padding: 1em 1.4em; margin-top: .5em; margin-bottom: 1.2em;
+text-align: center; color: #17935b; font-weight: 500; font-size: 1.08em; opacity: .85; }
+.harvest-section { margin-bottom: 2.1em; }
+.harvest-section h2 { font-size: 1.25em; color: #255b36; font-weight: 700;}
+.harvest-section .planting-grid { min-height: 2em; transition: min-height .14s;}
+.bottom-quote {margin: 3em auto 1.1em auto; background: #f7fff8; border-left: 5px solid #61c07a; border-radius:0px 11px 11px 0px;
+font-size: 1.06em; color: #08874e; max-width: 470px; padding: 0.6em 1.5em; font-style: italic; box-shadow: 0 2px 10px #9bfec72a; opacity:.92;}
+.timeline-bar {margin: 2.2em 0 2.3em 0; padding: 1.2em 1em; background: #e9fcee; border-radius: 12px; box-shadow: 0 4px 20px #19b96a1b; text-align: center;}
+.timeline-event { display: inline-block; margin: 0 1.1em; }
+.timeline-dot { width: 18px; height: 18px; background: #71e1a7; border-radius: 50%; border: 2.5px solid #17b66d; display: inline-block; margin-bottom: 5px; }
+.timeline-caption { font-size: .99em; color: #076342; }
+@media (max-width:460px) {
+  .card-3d-signup, .card-3d-login, .welcome-banner, .dashboard-card, .timeline-bar { margin-left: .6em; margin-right: .6em;}
+}
+</style>
 
-        #forest-back { animation: parallax 60s linear infinite; z-index: 2; opacity: 0.6; }
-        #forest-mid { animation: parallax 40s linear infinite; z-index: 3; opacity: 0.8; }
-        #forest-front { animation: parallax 20s linear infinite; z-index: 4; }
-
-        .header, .main-content-wrapper, .footer { z-index: 10; position: relative; }
-        .header { display: flex; justify-content: space-between; align-items: center; padding: 1em 2em; background: rgba(0,0,0,0.1); backdrop-filter: blur(5px); border-bottom: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
-        .logo-title { display: flex; align-items: center; gap: 0.75em; }
-        .logo svg { width: 40px; height: 40px; fill: var(--primary-color); }
-        h1 { margin: 0; font-size: 1.8em; }
-        
-        .add-button { display: inline-flex; align-items: center; gap: 0.5em; background-image: linear-gradient(to right, var(--primary-color) 0%, var(--primary-darker) 100%); color: white; padding: 12px 20px; text-decoration: none; border-radius: 50px; font-weight: bold; white-space: nowrap; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s ease; }
-        .add-button:hover { transform: translateY(-2px); box-shadow: 0 7px 20px rgba(0,0,0,0.3); background-image: linear-gradient(to right, #6fbf6f 0%, #5cb85c 100%); }
-        .add-button svg { width: 1.2em; height: 1.2em; }
-
-        .main-content-wrapper { display: flex; padding: 15px; gap: 10px; max-width: 1200px; margin: 0 auto; }
-        .footer { text-align: center; padding: 1em; font-size: 0.9em; color: var(--text-muted); background: rgba(0,0,0,0.2); backdrop-filter: blur(5px); flex-shrink: 0; }
-        
-        .content-column { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-        .content-column h2 { color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5em; margin: 0 0 10px 0; }
-        .planting-grid { perspective: 1000px; }
-        
-        .planting-card { background: var(--surface-color); border-left: 4px solid var(--primary-color); border-radius: 8px; padding: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.5); margin-bottom: 10px; position: relative; display: flex; flex-direction: column; gap: 0.5em; transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; }
-        .planting-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.4); }
-        .card-top-header { text-align: center; margin-bottom: 0.25em; }
-        .card-top-header h3 { margin: 0; font-size: 1.1em; font-weight: bold; }
-        .card-top-header .batch-id { font-size: 0.8em; font-style: italic; color: var(--text-muted); }
-        .card-dates-row { display: flex; justify-content: space-between; align-items: center; gap: 1em; flex-wrap: nowrap; }
-        .date-group { font-size: 0.8em; color: var(--text-muted); white-space: nowrap; }
-        .card-notes { display: flex; flex-direction: column; gap: 0.5em; }
-        .card-notes h4 { margin: 0; color: var(--text-muted); font-size: 0.9em; font-weight: bold; }
-        .card-notes p { margin: 0; font-style: italic; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }
-        .card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 0.5em; }
-        .action-btn { background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 0.9em; line-height: 26px; text-align: center; }
-        .card-steps { display: none; }
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 1000; display: none; justify-content: center; align-items: center; }
-        .modal-content { background: var(--surface-color); padding: 2em; border-radius: 12px; max-width: 500px; width: 90%; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.5); border-top: 5px solid var(--primary-color); }
-        .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: white; font-size: 2em; cursor: pointer; }
-        #modal-title { margin-top: 0; color: var(--primary-color); }
-        #modal-notes p { font-style: italic; }
-        #modal-steps-list { padding-left: 20px; }
-        @media (max-width: 900px) {
-            .main-content-wrapper { flex-direction: column; overflow: auto; }
-            .header { flex-direction: column; gap: 1em; padding: 1em; }
-            .scene, #walking-deer { display: none; }
-        }
-    </style>
-</head>
-<body>
-    <div class="scene">
-        <div id="sky-orb"></div>
-        <div id="forest-back" class="forest-layer"></div>
-        <div id="forest-mid" class="forest-layer"></div>
-        <div class="bird" id="bird1"></div>
-        <div class="bird" id="bird2"></div>
-        <div id="walking-deer"></div>
-        <div id="forest-front" class="forest-layer"></div>
-        <div class="bird" id="bird3"></div>
-        <div id="fireflies"></div>
+<!-- Header bar with logo, add-planting, bell, and profile -->
+<div class="header-bar">
+  <div class="logo-title d-flex align-items-center gap-2">
+    <a href="{% url 'index' %}" class="logo">
+      <svg viewBox="0 0 24 24" style="width:36px;height:36px;"><path fill="#2ea579"
+        d="M12,2A10,10 0 0,0 2,12C2,16.18 4.7,20.45 8.8,21.8L8.05,20.1C4.83,18.91 2.94,15.5 3.06,12.06C3.3,8.68 5.8,5.85 9.14,5.14C14.14,4.19 18.81,7.86 18.94,12.86C19.06,16.5 16.94,19.79 13.7,21.05L13,21.8C17.7,20.45 22,16.18 22,12A10,10 0 0,0 12,2Z"></path></svg>
+    </a>
+    <h1 class="mb-0 fs-2 fw-bold" style="color:#2ea579; letter-spacing:2px;">TerraTrack</h1>
+  </div>
+  <div class="header-profilegroup">
+    <a href="{% url 'add_planting' %}" class="add-button">
+      <i class="bi bi-plus-circle-fill"></i>
+      <span>Add New Planting</span>
+    </a>
+    <!-- Notification bell -->
+    <div class="dropdown">
+      <button class="btn btn-link p-0" id="notifDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+        <i class="bi bi-bell-fill fs-4 text-success"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notifDropdown" style="min-width:200px;">
+        <li><span class="dropdown-item-text small text-muted">No new notifications. Stay tuned for reminders!</span></li>
+      </ul>
     </div>
-    <div id="weather-container"></div>
-
-    <header class="header">
-        <div class="logo-title">
-            <a href="{% url 'index' %}" class="logo"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12C2,16.18 4.7,20.45 8.8,21.8L8.05,20.1C4.83,18.91 2.94,15.5 3.06,12.06C3.3,8.68 5.8,5.85 9.14,5.14C14.14,4.19 18.81,7.86 18.94,12.86C19.06,16.5 16.94,19.79 13.7,21.05L13,21.8C17.7,20.45 22,16.18 22,12A10,10 0 0,0 12,2M11,11.5A1.5,1.5 0 0,1 9.5,13A1.5,1.5 0 0,1 8,11.5A1.5,1.5 0 0,1 9.5,10A1.5,1.5 0 0,1 11,11.5M16,11.5A1.5,1.5 0 0,1 14.5,13A1.5,1.5 0 0,1 13,11.5A1.5,1.5 0 0,1 14.5,10A1.5,1.5 0 0,1 16,11.5M12,6A1.5,1.5 0 0,1 13.5,7.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 10.5,7.5A1.5,1.5 0 0,1 12,6Z"></path></svg></a>
-            <h1>TerraTrack</h1>
-        </div>
-        <a href="{% url 'index' %}" class="add-button">
-            <svg fill="currentColor" viewBox="0 0 20 20"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"></path></svg>
-            Add New Planting
-        </a>
-    </header>
-
-    <main class="main-content-wrapper">
-        <!-- Upcoming Harvests Column -->
-        <div class="content-column">
-            <h2>Upcoming Harvests</h2>
-            <div class="planting-grid">
-                {% for planting in upcoming %}
-                <div class="planting-card">
-                    <div class="card-actions">
-                        <a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a>
-                        <form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">
-                            {% csrf_token %}
-                            <button type="submit" class="action-btn delete-btn" title="Delete">&times;</button>
-                        </form>
-                    </div>
-                    <div class="card-top-header">
-                        <h3>{{ planting.crop_name }}</h3>
-                        {% if planting.batch_id %}
-                        <div class="batch-id">Batch ID: {{ planting.batch_id }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="card-dates-row">
-                        <div class="date-group">
-                            <strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}
-                        </div>
-                        {% if planting.harvest_date %}
-                        <div class="date-group">
-                            <strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% if planting.image_url %}
-                        <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
-                        </div>
-                    {% endif %}
-                    {% if planting.notes %}
-                    <div class="card-notes">
-                        <h4>Notes:</h4>
-                        <p>{{ planting.notes }}</p>
-                    </div>
-                    {% endif %}
-                    <div class="card-steps">
-                        {% for task_item in planting.plan %}
-                        <li>
-                            {{ task_item.task }}
-                            {% if task_item.due_date %}
-                                ({{ task_item.due_date|date:"M d" }})
-                            {% endif %}
-                        </li>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% empty %}
-                <p class="empty-state">No plantings in this category.</p>
-                {% endfor %}
-            </div>
-        </div>
-
-        <!-- Ongoing Harvests Column -->
-        <div class="content-column">
-            <h2>Ongoing Harvests</h2>
-            <div class="planting-grid">
-                {% for planting in ongoing %}
-                <div class="planting-card">
-                    <div class="card-actions">
-                        <a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a>
-                        <form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">
-                            {% csrf_token %}
-                            <button type="submit" class="action-btn delete-btn" title="Delete">&times;</button>
-                        </form>
-                    </div>
-                    <div class="card-top-header">
-                        <h3>{{ planting.crop_name }}</h3>
-                        {% if planting.batch_id %}
-                        <div class="batch-id">Batch ID: {{ planting.batch_id }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="card-dates-row">
-                        <div class="date-group">
-                            <strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}
-                        </div>
-                        {% if planting.harvest_date %}
-                        <div class="date-group">
-                            <strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% if planting.image_url %}
-                        <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
-                        </div>
-                    {% endif %}
-                    {% if planting.notes %}
-                    <div class="card-notes">
-                        <h4>Notes:</h4>
-                        <p>{{ planting.notes }}</p>
-                    </div>
-                    {% endif %}
-                    <div class="card-steps">
-                        {% for task_item in planting.plan %}
-                        <li>
-                            {{ task_item.task }}
-                            {% if task_item.due_date %}
-                                ({{ task_item.due_date|date:"M d" }})
-                            {% endif %}
-                        </li>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% empty %}
-                <p class="empty-state">No other ongoing plantings.</p>
-                {% endfor %}
-            </div>
-        </div>
-
-        <!-- Past Harvests Column -->
-        <div class="content-column">
-            <h2>Past Harvests</h2>
-            <div class="planting-grid">
-                {% for planting in past %}
-                <div class="planting-card">
-                    <div class="card-actions">
-                        <a href="{% url 'edit_planting' planting.id %}" class="action-btn edit-btn" title="Edit" onclick="event.stopPropagation();">&#9998;</a>
-                        <form action="{% url 'delete_planting' planting.id %}" method="post" style="margin:0;" onclick="event.stopPropagation();">
-                            {% csrf_token %}
-                            <button type="submit" class="action-btn delete-btn" title="Delete">&times;</button>
-                        </form>
-                    </div>
-                    <div class="card-top-header">
-                        <h3>{{ planting.crop_name }}</h3>
-                        {% if planting.batch_id %}
-                        <div class="batch-id">Batch ID: {{ planting.batch_id }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="card-dates-row">
-                        <div class="date-group">
-                            <strong>Planted Date:</strong> {{ planting.planting_date|date:"M d, Y" }}
-                        </div>
-                        {% if planting.harvest_date %}
-                        <div class="date-group">
-                            <strong>Harvest Date:</strong> {{ planting.harvest_date|date:"M d, Y" }}
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% if planting.image_url %}
-                        <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
-                        </div>
-                    {% endif %}
-                    {% if planting.notes %}
-                    <div class="card-notes">
-                        <h4>Notes:</h4>
-                        <p>{{ planting.notes }}</p>
-                    </div>
-                    {% endif %}
-                    <div class="card-steps">
-                        {% for task_item in planting.plan %}
-                        <li>
-                            {{ task_item.task }}
-                            {% if task_item.due_date %}
-                                ({{ task_item.due_date|date:"M d" }})
-                            {% endif %}
-                        </li>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% empty %}
-                <p class="empty-state">No past plantings.</p>
-                {% endfor %}
-            </div>
-        </div>
-    </main>
-
-    <footer class="footer">Sow, Grow, Crop.</footer>
-    <div id="details-modal" class="modal-overlay">
-        <div class="modal-content">
-            <button id="modal-close-btn" class="modal-close">&times;</button>
-            <h2 id="modal-title"></h2>
-            <div id="modal-notes"></div>
-            <h4>Steps to be followed:</h4>
-            <ul id="modal-steps-list"></ul>
-        </div>
+    <!-- Profile avatar dropdown (show initials if no avatar) -->
+    <div class="dropdown">
+      <button class="btn p-0 border-0 bg-transparent" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+        {% if request.user.userprofile and request.user.userprofile.avatar_url %}
+          <img src="{{ request.user.userprofile.avatar_url }}" class="profile-avatar" alt="profile">
+        {% else %}
+          <span class="profile-avatar" id="profileInitials">
+            {% if request.user.first_name or request.user.last_name %}
+              {{ request.user.first_name|slice:":1" }}{{ request.user.last_name|slice:":1" }}
+            {% elif request.user.username %}
+              {{ request.user.username|slice:":2"|upper }}
+            {% else %}U{% endif %}
+          </span>
+        {% endif %}
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
+        <li>
+          <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#profileModal">
+            <i class="bi bi-person-fill"></i> Profile Settings
+          </a>
+        </li>
+        <li><a class="dropdown-item" href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+      </ul>
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const body = document.body;
-            const weatherContainer = document.getElementById('weather-container');
-            const firefliesContainer = document.getElementById('fireflies');
+  </div>
+</div>
 
-            const timesOfDay = ['day', 'evening', 'night'];
-            const weatherTypes = ['clear', 'rain', 'snow', 'breezy'];
-            const backgroundThemes = {
-                forest: { back: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%232c3e50\" d=\"M0 200 V120 C100 110, 150 130, 250 125 S400 110, 500 120 S650 140, 800 130 V200 Z\" /></svg>')", mid: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%2334495e\" d=\"M0 200 V140 C80 150, 180 130, 280 135 S450 160, 550 150 S700 130, 800 140 V200 Z\" /></svg>')", front: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%231e2b37\" d=\"M0 200 V160 C120 150, 220 170, 320 165 S500 140, 600 150 S750 170, 800 160 V200 Z\" /></svg>')" },
-                hills: { back: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%236a89cc\" d=\"M0 200 V100 C150 50, 250 150, 400 120 S550 100, 700 150 L800 140 V200 Z\" /></svg>')", mid: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%234a69bd\" d=\"M0 200 V130 C100 180, 200 100, 350 140 S500 180, 650 120 L800 150 V200 Z\" /></svg>')", front: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%231e3799\" d=\"M0 200 V160 C150 140, 250 180, 400 170 S550 150, 700 160 L800 150 V200 Z\" /></svg>')" },
-                agri: { back: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%23f39c12\" d=\"M0 200 V180 H800 V200 Z\" /></svg>')", mid: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%23e67e22\" d=\"M0 200 V190 H800 V200 Z\" /></svg>')", front: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 200\"><path fill=\"%23d35400\" d=\"M0 200 V195 H800 V200 Z\" /></svg>')" }
-            };
-            let timeIndex = 0, weatherIndex = 0, backgroundIndex = 0;
-            function setTimeOfDay() { body.classList.remove(...timesOfDay); const newTime = timesOfDay[timeIndex]; body.classList.add(newTime); firefliesContainer.innerHTML = ''; if (newTime === 'night' || newTime === 'evening') createFireflies(); timeIndex = (timeIndex + 1) % timesOfDay.length; }
-            function setWeather() { weatherContainer.innerHTML = ''; const newWeather = weatherTypes[weatherIndex]; if (newWeather === 'rain') createParticles('raindrop', 100); if (newWeather === 'snow') createParticles('snowflake', 50); if (newWeather === 'breezy') createParticles('leaf', 20); weatherIndex = (weatherIndex + 1) % weatherTypes.length; }
-            function setBackground() { const themeName = Object.keys(backgroundThemes)[backgroundIndex]; const theme = backgroundThemes[themeName]; document.getElementById('forest-back').style.backgroundImage = theme.back; document.getElementById('forest-mid').style.backgroundImage = theme.mid; document.getElementById('forest-front').style.backgroundImage = theme.front; backgroundIndex = (backgroundIndex + 1) % Object.keys(backgroundThemes).length; }
-            function createFireflies() { for (let i = 0; i < 20; i++) { const firefly = document.createElement('div'); firefly.className = 'firefly'; firefly.style.left = `${Math.random() * 100}%`; firefly.style.top = `${Math.random() * 80}%`; firefly.style.animationDelay = `${Math.random() * 5}s`; firefly.style.animationDuration = `${3 + Math.random() * 2}s`; firefliesContainer.appendChild(firefly); } }
-            function createParticles(className, count) { for (let i = 0; i < count; i++) { const particle = document.createElement('div'); particle.className = className; particle.style.left = `${Math.random() * 100}vw`; if (className === 'raindrop') { particle.style.animationDelay = `${Math.random() * 2}s`; particle.style.animationDuration = `${0.3 + Math.random() * 0.3}s`; } else if (className === 'snowflake') { particle.style.animationDelay = `${Math.random() * 10}s`; particle.style.animationDuration = `${5 + Math.random() * 5}s`; particle.style.opacity = Math.random(); } else if (className === 'leaf') { particle.style.top = `${Math.random() * 100}%`; particle.style.animationDelay = `${Math.random() * 7}s`; particle.style.animationDuration = `${4 + Math.random() * 3}s`; } weatherContainer.appendChild(particle); } }
-            setTimeOfDay(); setWeather(); setBackground();
-            setInterval(setTimeOfDay, 5 * 60 * 1000); setInterval(setWeather, 2 * 60 * 1000); setInterval(setBackground, 10 * 60 * 1000);
+<!-- Welcome banner -->
+<div class="welcome-banner mb-4">
+  Welcome back, <b>
+    {% if request.user.first_name or request.user.last_name %}
+      {{ request.user.first_name }} {{ request.user.last_name }}
+    {% else %}
+      {{ request.user.username|default:"Gardener" }}
+    {% endif %}
+  </b>! 🌱 Ready to grow more today?
+</div>
 
-            // Modal Logic
-            const modal = document.getElementById('details-modal');
-            const modalTitle = document.getElementById('modal-title');
-            const modalNotes = document.getElementById('modal-notes');
-            const modalStepsList = document.getElementById('modal-steps-list');
-            const closeModalBtn = document.getElementById('modal-close-btn');
+<!-- Quick dashboard cards -->
+{% comment %} Planting data summary - edit variables as necessary in your view to pass these! {% endcomment %}
+{% with total_plants=ongoing|length|add:upcoming|length|add:past|length %}
+<div class="dashboard-cards">
+  <div class="dashboard-card">
+    <span class="icon text-success"><i class="bi bi-seedling"></i></span>
+    <span>Plants Tracked</span>
+    <span class="h3">{{ total_plants }}</span>
+  </div>
+  <div class="dashboard-card">
+    <span class="icon text-primary"><i class="bi bi-calendar-event"></i></span>
+    <span>Next Harvest</span>
+    <span class="h5">{% if upcoming %}{{ upcoming.0.crop_name }}:<br>{{ upcoming.0.harvest_date|date:"M j, Y" }}{% else %}--{% endif %}</span>
+  </div>
+  <div class="dashboard-card">
+    <span class="icon text-warning"><i class="bi bi-list-task"></i></span>
+    <span>Today's Tasks</span>
+    <span class="h5">
+      {% if ongoing %}
+        • Check care for {{ ongoing.0.crop_name }}
+      {% else %}
+        All caught up!
+      {% endif %}
+    </span>
+  </div>
+</div>
+{% endwith %}
 
-            document.querySelectorAll('.planting-card').forEach(card => {
-                card.addEventListener('click', () => {
-                    const title = card.querySelector('h3').textContent;
-                    const notesDiv = card.querySelector('.card-notes');
-                    const stepsHTML = card.querySelector('.card-steps').innerHTML;
+<!-- Visual timeline widget -->
+<div class="timeline-bar">
+  <div class="timeline-event">
+    <span class="timeline-dot"></span>
+    <div class="timeline-caption">Last Planted<br>
+      {% if ongoing %}
+        <b>{{ ongoing.0.crop_name|default:"-" }}</b><br>
+        {{ ongoing.0.planting_date|date:"M j" }}
+      {% else %}—{% endif %}
+    </div>
+  </div>
+  <span style="font-size:26px;color:#15b980;">—</span>
+  <div class="timeline-event">
+    <span class="timeline-dot"></span>
+    <div class="timeline-caption">Next Harvest<br>
+      {% if upcoming %}
+        <b>{{ upcoming.0.crop_name|default:"-" }}</b><br>
+        {{ upcoming.0.harvest_date|date:"M j" }}
+      {% else %}—{% endif %}
+    </div>
+  </div>
+</div>
 
-                    modalTitle.textContent = title;
-                    modalNotes.innerHTML = notesDiv ? notesDiv.innerHTML : '';
-                    modalStepsList.innerHTML = stepsHTML;
-                    
-                    modal.style.display = 'flex';
-                });
-            });
+<div class="main-content-wrapper">
+  <div class="content-column">
+    <div class="harvest-section mb-4">
+      <h2><i class="bi bi-sunrise text-success"></i> Upcoming Harvests</h2>
+      <div class="planting-grid">
+        {% if upcoming %} 
+          {% for planting in upcoming %}
+          <div class="planting-card" style="cursor:pointer;">
+            <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>
+              {% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}
+            </div>
+            <div class="card-dates-row">
+              <div class="date-group"><strong>Planted:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>
+              {% if planting.harvest_date %}<div class="date-group"><strong>Harvest:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}
+            </div>
+            {% if planting.image_url %}
+            <div style="text-align:center;">
+              <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 120px; max-height: 80px; border-radius: 10px;" />
+            </div>
+            {% endif %}
+            {% if planting.notes %}
+            <div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
+            <div class="card-steps" style="display:none">
+              {% for task_item in planting.plan %}
+                <li>{{ task_item.task }} {% if task_item.due_date %}({{ task_item.due_date|date:"M d" }}){% endif %}</li>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-category">No plantings in this category yet. <a href="{% url 'add_planting' %}">Start a new crop?</a></div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="harvest-section mb-4">
+      <h2><i class="bi bi-activity text-primary"></i> Ongoing Harvests</h2>
+      <div class="planting-grid">
+        {% if ongoing %}
+          {% for planting in ongoing %}
+          <div class="planting-card" style="cursor:pointer;">
+            <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>
+              {% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}
+            </div>
+            <div class="card-dates-row">
+              <div class="date-group"><strong>Planted:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>
+              {% if planting.harvest_date %}<div class="date-group"><strong>Harvest:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}
+            </div>
+            {% if planting.image_url %}
+            <div style="text-align:center;">
+              <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 120px; max-height: 80px; border-radius: 10px;" />
+            </div>
+            {% endif %}
+            {% if planting.notes %}
+            <div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
+            <div class="card-steps" style="display:none">
+              {% for task_item in planting.plan %}
+                <li>{{ task_item.task }} {% if task_item.due_date %}({{ task_item.due_date|date:"M d" }}){% endif %}</li>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-category">No other ongoing plantings. <span class="text-muted">Add your next crop!</span></div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="harvest-section">
+      <h2><i class="bi bi-clock-history text-secondary"></i> Past Harvests</h2>
+      <div class="planting-grid">
+        {% if past %}
+          {% for planting in past %}
+          <div class="planting-card" style="cursor:pointer;">
+            <div class="card-top-header"><h3>{{ planting.crop_name }}</h3>
+              {% if planting.batch_id %}<div class="batch-id">Batch ID: {{ planting.batch_id }}</div>{% endif %}
+            </div>
+            <div class="card-dates-row">
+              <div class="date-group"><strong>Planted:</strong> {{ planting.planting_date|date:"M d, Y" }}</div>
+              {% if planting.harvest_date %}<div class="date-group"><strong>Harvest:</strong> {{ planting.harvest_date|date:"M d, Y" }}</div>{% endif %}
+            </div>
+            {% if planting.image_url %}
+            <div style="text-align:center;">
+              <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 120px; max-height: 80px; border-radius: 10px;" />
+            </div>
+            {% endif %}
+            {% if planting.notes %}
+            <div class="card-notes"><h4>Notes:</h4><p>{{ planting.notes }}</p></div>{% endif %}
+            <div class="card-steps" style="display:none">
+              {% for task_item in planting.plan %}
+                <li>{{ task_item.task }} {% if task_item.due_date %}({{ task_item.due_date|date:"M d" }}){% endif %}</li>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-category">No past plantings. <span class="text-muted">Your future harvests will be here!</span></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 
-            function closeModal() {
-                modal.style.display = 'none';
-            }
+<!-- QUOTE/TIPS BAR -->
+<div class="bottom-quote">
+  Sow, Grow, Crop. 🌾<br>
+  <span class="small">Tip: You can edit your profile in the menu above.<br>Try succession planting to get a continuous harvest. Need watering reminders? Stay tuned for notification upgrades!</span>
+</div>
 
-            closeModalBtn.addEventListener('click', closeModal);
-            modal.addEventListener('click', (event) => {
-                if (event.target === modal) {
-                    closeModal();
-                }
-            });
-        });
-    </script>
-</body>
-</html>
+
+<!-- Modal for planting card details -->
+<div id="details-modal" class="modal-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:2000;justify-content:center;align-items:center;background:rgba(0,0,0,0.5);">
+  <div class="modal-content">
+    <button id="modal-close-btn" class="modal-close">&times;</button>
+    <h2 id="modal-title"></h2>
+    <div id="modal-notes"></div>
+    <h4>Steps to be followed:</h4>
+    <ul id="modal-steps-list"></ul>
+  </div>
+</div>
+
+<!-- Modal for profile edit (link from menu; real form logic not included for brevity) -->
+<div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profileModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="profileModalLabel">Edit Profile</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <form method="post" action="{% url 'profile' %}">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label for="profile-fn" class="form-label">First Name</label>
+            <input type="text" class="form-control" id="profile-fn" name="first_name" value="{{ request.user.first_name }}">
+          </div>
+          <div class="mb-3">
+            <label for="profile-ln" class="form-label">Last Name</label>
+            <input type="text" class="form-control" id="profile-ln" name="last_name" value="{{ request.user.last_name }}">
+          </div>
+          <div class="mb-3">
+            <label for="profile-country" class="form-label">Country</label>
+            <input type="text" class="form-control" id="profile-country" name="country" value="{% if request.user.userprofile %}{{ request.user.userprofile.country }}{% endif %}">
+          </div>
+          <div class="mb-3">
+            <label for="profile-email" class="form-label">Email (not editable)</label>
+            <input type="email" class="form-control" id="profile-email" value="{{ request.user.email }}" disabled>
+          </div>
+          <button type="submit" class="btn btn-success">Save Changes</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Planting card modal details
+  const modal = document.getElementById('details-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalNotes = document.getElementById('modal-notes');
+  const modalStepsList = document.getElementById('modal-steps-list');
+  const closeModalBtn = document.getElementById('modal-close-btn');
+  document.querySelectorAll('.planting-card').forEach(card => {
+      card.addEventListener('click', () => {
+          const title = card.querySelector('h3').textContent;
+          const notesDiv = card.querySelector('.card-notes');
+          const stepsHTML = card.querySelector('.card-steps').innerHTML;
+          modalTitle.textContent = title;
+          modalNotes.innerHTML = notesDiv ? notesDiv.innerHTML : '';
+          modalStepsList.innerHTML = stepsHTML;
+          modal.style.display = 'flex';
+      });
+  });
+  function closeModal() { modal.style.display = 'none'; }
+  closeModalBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => { if (event.target === modal) closeModal(); });
+
+  // If no avatar image, set initials dynamically (already handled server-side, but optionally can do on client)
+  const initialsEl = document.getElementById('profileInitials');
+  if (initialsEl && !initialsEl.textContent.trim()) initialsEl.textContent = "U";
+});
+</script>
+{% endblock %}
