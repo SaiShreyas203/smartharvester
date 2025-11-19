@@ -119,30 +119,56 @@ body {
   <div class="card-body-3d">
     <div class="mb-2 signup-label">SIGN UP</div>
     {% if form.errors %}
-      <div class="form-error-3d">Please fix the issues below and try again.</div>
+      <div class="form-error-3d">
+        Please fix the issues below and try again.
+        <ul>
+        {% for field in form %}
+            {% for error in field.errors %}
+            <li><b>{{ field.label }}:</b> {{ error }}</li>
+            {% endfor %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+            <li>{{ error }}</li>
+        {% endfor %}
+        </ul>
+      </div>
     {% endif %}
     <form method="post" autocomplete="on">
       {% csrf_token %}
-      {{ form.non_field_errors }}
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-person-circle"></i></span>
         {{ form.username }}
+        {% for error in form.username.errors %}
+          <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-envelope"></i></span>
         {{ form.email }}
+        {% for error in form.email.errors %}
+          <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
         {{ form.password1 }}
+        {% for error in form.password1.errors %}
+          <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
         {{ form.password2 }}
+        {% for error in form.password2.errors %}
+          <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-globe-asia-australia"></i></span>
         {{ form.country }}
+        {% for error in form.country.errors %}
+          <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
       </div>
       <button type="submit" class="signup-btn-3d">Sign Up</button>
     </form>
