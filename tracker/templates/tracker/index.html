@@ -39,6 +39,7 @@
         .header, .main-content-wrapper, .footer { z-index: 10; position: relative; }
         .header { display: flex; justify-content: space-between; align-items: center; padding: 1em 2em; background: rgba(0,0,0,0.1); backdrop-filter: blur(5px); border-bottom: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
         .logo-title { display: flex; align-items: center; gap: 0.75em; }
+        .header-actions { margin-left: auto; display:flex; align-items:center; gap:10px; }
         .logo svg { width: 40px; height: 40px; fill: var(--primary-color); }
         h1 { margin: 0; font-size: 1.8em; }
         .add-button { display: inline-flex; align-items: center; gap: 0.5em; background-image: linear-gradient(to right, var(--primary-color) 0%, var(--primary-darker) 100%); color: white; padding: 12px 20px; text-decoration: none; border-radius: 50px; font-weight: bold; white-space: nowrap; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s ease; }
@@ -112,23 +113,25 @@
 
     <header class="header">
         <div class="logo-title">
-            <a href="{% url 'index' %}" class="logo"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12C2,16.18 4.7,20.45 8.8,21.8L8.05,20.1C4.83,18.91 2.94,15.5 3.06,12.06C3.3,8.68 5.8,5.85 9.14,5.14C14.14,4.19 18.81,7.86 18.94,12.86C19.06,16.5 16.94,19.79 13.7,21.05L13,21.8C17.7,20.45 22,16.18 22,12A10,10 0 0,0 12,2M11,11.5A1.5,1.5 0 0,1 9.5,13A1.5,1.5 0 0,1 8,11.5A1.5,1.5 0 0,1 9.5,10A1.5 1.5 0 0 1 11,11.5M16,11.5A1.5,1.5 0 0,1 14.5,13A1.5,1.5 0 0,1 13,11.5A1.5,1.5 0 0,1 14.5,10A1.5,1.5 0 0 1 16,11.5M12,6A1.5,1.5 0 0,1 13.5,7.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 10.5,7.5A1.5,1.5 0 0,1 12,6Z"></path></svg></a>
+            <a href="{% url 'index' %}" class="logo"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12C2,16.18 4.7,20.45 8.8,21.8L8.05,20.1C4.83,18.91 2.94,15.5 3.06,12.06C3.3,8.68 5.8,5.85 9.14,5.14C14.14,4.19 18.81,7.86 18.94,12.86C19.06,16.5 16.94,19.79 13.7,21.05L13,21.8C17.7,20.45 22,16.18 22,12A10,10 0 0,0 12,2M11,11.5A1.5,1.5 0 0,1 9.5,13A1.5,1.5 0 0,1 8,11.5A1.5,1.5 0 0,1 9.5,10A1.5 1.5 0 0 1 11,11.5M16,11.5A1.5,1.5 0 0,1 14.5,13A1.5,1.5 0 0,1 13,11.5A1.5,1.5 0 0,1 14.5,10A1.5 1.5 0 0 1 16,11.5M12,6A1.5,1.5 0 0,1 13.5,7.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 10.5,7.5A1.5,1.5 0 0,1 12,6Z"></path></svg></a>
             <h1>TerraTrack</h1>
         </div>
 
-        <button id="dashboard-btn" class="add-button" style="margin-right:10px; background:#4a934a;">
-            Dashboard
-        </button>
+        <div class="header-actions">
+            <button id="dashboard-btn" class="add-button" style="background:#4a934a;">
+                Dashboard
+            </button>
 
-        <a href="{% url 'add_planting' %}" class="add-button">
-            <svg fill="currentColor" viewBox="0 0 20 20"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"></path></svg>
-            Add New Planting
-        </a>
+            <a href="{% url 'add_planting' %}" class="add-button">
+                <svg fill="currentColor" viewBox="0 0 20 20"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"></path></svg>
+                Add New Planting
+            </a>
 
-        <button id="notification-btn" class="action-btn" style="margin-left:10px; width:35px; height:35px; font-size:1.2em;">🔔</button>
+            <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;">🔔</button>
 
-        <div id="profile-icon" style="margin-left:15px; cursor:pointer; width:40px; height:40px; border-radius:50%; background:#6fbf6f; display:flex; align-items:center; justify-content:center; font-weight:bold;">
-            {{ user.first_name|slice:":1" }}{{ user.last_name|slice:":1" }}
+            <div id="profile-icon" style="cursor:pointer; width:40px; height:40px; border-radius:50%; background:#6fbf6f; display:flex; align-items:center; justify-content:center; font-weight:bold;">
+                {{ user.first_name|slice":1" }}{{ user.last_name|slice":1" }}
+            </div>
         </div>
     </header>
 
