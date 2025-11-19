@@ -6,17 +6,16 @@ import os
 import boto3
 import uuid
 
-from django.contrib.auth.forms import UserCreationForm
-from django.contrib.auth import login as auth_login
+from smartharvest_plan.plan import calculate_plan
 
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
-
 from django.contrib.auth import authenticate, login
-from django.shortcuts import render, redirect
-from .forms import SignUpForm
 from django.contrib.auth.models import User
+
+from .forms import SignUpForm
 from .models import UserProfile
+
+from smartharvest_plan.plan import calculate_plan # My PyPi Library
 
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
@@ -25,20 +24,6 @@ def load_plant_data():
     with open(DATA_FILE_PATH, 'r') as f:
         return json.load(f)
 
-def _calculate_plan(crop_name, planting_date):
-    """Helper function to calculate a care plan."""
-    plant_data = load_plant_data()
-    schedule_info = next((p['care_schedule'] for p in plant_data['plants'] if p['name'] == crop_name), None)
-    
-    calculated_plan = []
-    if schedule_info:
-        for task in schedule_info:
-            task_details = {'task': task['task_title']}
-            if 'days_after_planting' in task and task['days_after_planting'] is not None:
-                due_date = planting_date + timedelta(days=task['days_after_planting'])
-                task_details['due_date'] = due_date.isoformat()
-            calculated_plan.append(task_details)
-    return calculated_plan
 
 def index(request):
     user_plantings = request.session.get('user_plantings', [])
@@ -111,7 +96,14 @@ def save_planting(request):
             return redirect('index')
 
         planting_date = date.fromisoformat(planting_date_str)
-        calculated_plan = _calculate_plan(crop_name, planting_date)
+
+        plant_data = load_plant_data()
+        calculated_plan = calculate_plan(crop_name, planting_date, plant_data)
+
+        # Convert due_date to ISO strings for storage in session
+        for task in calculated_plan:
+            if 'due_date' in task and isinstance(task['due_date'], date):
+                task['due_date'] = task['due_date'].isoformat()
 
         user_plantings = request.session.get('user_plantings', [])
         user_plantings.append({
@@ -174,7 +166,14 @@ def update_planting(request, planting_id):
             return redirect('index')
 
         planting_date = date.fromisoformat(planting_date_str)
-        calculated_plan = _calculate_plan(crop_name, planting_date)
+
+        plant_data = load_plant_data()
+        calculated_plan = calculate_plan(crop_name, planting_date, plant_data)
+
+        # Convert due_date to ISO strings for storage in session
+        for task in calculated_plan:
+            if 'due_date' in task and isinstance(task['due_date'], date):
+                task['due_date'] = task['due_date'].isoformat()
 
         user_plantings[planting_id] = {
             'crop_name': crop_name,
