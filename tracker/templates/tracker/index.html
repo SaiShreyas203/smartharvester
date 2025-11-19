@@ -130,7 +130,7 @@
             <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;">🔔</button>
 
             <div id="profile-icon" style="cursor:pointer; width:40px; height:40px; border-radius:50%; background:#6fbf6f; display:flex; align-items:center; justify-content:center; font-weight:bold;">
-                {{ user.first_name|slice:":1" }}{{ user.last_name|slice:":1" }}
+                {{ user.username|slice:":2"|upper }}
             </div>
         </div>
     </header>
@@ -344,6 +344,14 @@
     </div>
 </div>
 
+<!-- Notification Modal -->
+<div id="notification-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px;">
+        <button class="modal-close" onclick="closeNotification()">&times;</button>
+        <h2 style="color: var(--primary-color); margin-top: 0;">Notifications</h2>
+        <p>Upcoming harvest!</p>
+    </div>
+</div>
 
 
     <!-- Details modal for plantings -->
@@ -362,21 +370,18 @@
         <div class="modal-content" role="dialog" aria-modal="true">
             <button id="profile-modal-close" class="modal-close">&times;</button>
             <h2>Edit Profile</h2>
-            <form action="/profile/edit/" method="post" enctype="multipart/form-data">
+            <form action="/profile/edit/" method="post">
                 {% csrf_token %}
                 <div class="form-row">
-                    <input type="text" name="first_name" placeholder="First name" value="{{ user.first_name }}" />
-                    <input type="text" name="last_name" placeholder="Last name" value="{{ user.last_name }}" />
+                    <input type="text" name="username" placeholder="Username" value="{{ user.username }}" />
                 </div>
                 <div class="form-row">
                     <input type="email" name="email" placeholder="Email" value="{{ user.email }}" />
                 </div>
                 <div class="form-row">
-                    <label style="width:100%">Profile image (optional)</label>
-                    <input type="file" name="profile_image" accept="image/*" />
+                    <input type="password" name="password" placeholder="New password (optional)" />
                 </div>
                 <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
-                    <a href="/profile/" class="add-button" style="background:transparent; border:1px solid var(--border-color);">Open full profile</a>
                     <button type="submit" class="add-button">Save</button>
                 </div>
             </form>
@@ -441,9 +446,9 @@
 
             // Profile modal logic
             const profileModal = document.getElementById('profile-modal');
-            const openProfileBtn = document.getElementById('open-profile-modal');
+            const profileIcon = document.getElementById('profile-icon');
             const profileClose = document.getElementById('profile-modal-close');
-            if (openProfileBtn) openProfileBtn.addEventListener('click', (e) => { e.stopPropagation(); profileModal.style.display = 'flex'; profileModal.setAttribute('aria-hidden','false'); });
+            if (profileIcon) profileIcon.addEventListener('click', (e) => { e.stopPropagation(); profileModal.style.display = 'flex'; profileModal.setAttribute('aria-hidden','false'); });
             if (profileClose) profileClose.addEventListener('click', () => { profileModal.style.display = 'none'; profileModal.setAttribute('aria-hidden','true'); });
             profileModal.addEventListener('click', (event) => { if (event.target === profileModal) { profileModal.style.display = 'none'; profileModal.setAttribute('aria-hidden','true'); } });
 
@@ -480,13 +485,26 @@
             });
 
         });
-    // Dashboard modal logic
+    // Dashboard & notification modal logic
 const dashboardBtn = document.getElementById('dashboard-btn');
-dashboardBtn.addEventListener('click', () => {
-    document.getElementById('dashboard-modal').style.display = 'flex';
-});
+if (dashboardBtn) {
+    dashboardBtn.addEventListener('click', () => {
+        document.getElementById('dashboard-modal').style.display = 'flex';
+    });
+}
+
+const notificationBtn = document.getElementById('notification-btn');
+if (notificationBtn) {
+    notificationBtn.addEventListener('click', () => {
+        document.getElementById('notification-modal').style.display = 'flex';
+    });
+}
+
 function closeDashboard() {
     document.getElementById('dashboard-modal').style.display = 'none';
+}
+function closeNotification() {
+    document.getElementById('notification-modal').style.display = 'none';
 }
 </script>
 </body>
