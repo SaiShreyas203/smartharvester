@@ -7,9 +7,23 @@
 body {
   min-height: 100vh;
   font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif;
-  background: linear-gradient(130deg, #183f24c9 0%, #246246d9 100%), url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=900&q=80') no-repeat center center fixed;
+  background:
+    radial-gradient(circle at top left, rgba(46, 160, 97, 0.42), rgba(4, 20, 9, 0.96)),
+    url('https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1600&q=80') no-repeat center center fixed;
   background-size: cover;
   position: relative;
+  overflow: hidden;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(190, 255, 210, 0.18), transparent 55%),
+    radial-gradient(circle at 80% 85%, rgba(72, 187, 120, 0.22), transparent 55%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 0;
 }
 .brand-slogan {
   position: fixed;
@@ -28,12 +42,14 @@ body {
 .card-3d-signup {
   margin: 12vh auto 0 auto;
   max-width: 430px;
-  border-radius: 20px;
-  background: rgba(255,255,255,0.97);
-  box-shadow: 0 15px 48px 0 #1e273a3b, 0 1.5px 12px #94ebbe2a;
+  border-radius: 22px;
+  background: radial-gradient(circle at top, #f9fffaf5 0%, #ebf7f1fa 40%, #dbeee5 100%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.58),
+    0 0 0 1px rgba(255, 255, 255, 0.58);
   position: relative;
   z-index: 2;
-  backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(3px);
   overflow: hidden;
 }
 .card-top-3d {
@@ -49,6 +65,17 @@ body {
 }
 .card-body-3d {
   padding: 36px 28px 25px 28px;
+  position: relative;
+}
+.card-body-3d::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(circle at 5% 0%, rgba(16, 185, 129, 0.22), transparent 55%),
+    radial-gradient(circle at 95% 100%, rgba(101, 163, 13, 0.18), transparent 55%);
+  opacity: 0.55;
+  z-index: -1;
 }
 .signup-label {
   margin-bottom: 0.5em;
@@ -60,8 +87,8 @@ body {
 }
 .signup-input-group {
   border-radius: 13px;
-  box-shadow: 0 3px 20px #57c4921c;
-  background: #eaf9f4fa;
+  box-shadow: 0 6px 24px rgba(37, 165, 106, 0.18);
+  background: linear-gradient(135deg, #eaf9f4fa 0%, #ddf3ea 100%);
   margin-bottom: 20px;
 }
 .signup-input-group input, .signup-input-group select {
@@ -84,16 +111,18 @@ body {
   padding: 0.82em 0;
   border: none;
   border-radius: 11px;
-  background: linear-gradient(100deg, #27e89a 0%, #188a64 100%);
+  background: linear-gradient(105deg, #22c55e 0%, #15803d 45%, #166534 100%);
   color: #fff;
   font-size: 1.13rem;
   font-weight: 700;
-  box-shadow: 0 3px 18px #2dc18540;
-  transition: background 0.22s, box-shadow 0.2s;
+  box-shadow: 0 10px 28px rgba(22, 163, 74, 0.35);
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background 0.2s;
   letter-spacing: 1.08px;
 }
 .signup-btn-3d:hover {
-  background: linear-gradient(100deg, #45f5b5 0%, #135d45 100%);
+  background: linear-gradient(105deg, #4ade80 0%, #16a34a 40%, #15803d 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 36px rgba(21, 128, 61, 0.45);
 }
 .login-row-3d {
   text-align: center; font-size: 1em; margin-top: 1.27em;
