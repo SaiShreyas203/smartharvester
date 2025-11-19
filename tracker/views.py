@@ -16,6 +16,7 @@ from django.contrib.auth import authenticate, login
 from django.shortcuts import render, redirect
 from .forms import SignUpForm
 from django.contrib.auth.models import User
+from .models import UserProfile
 
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
