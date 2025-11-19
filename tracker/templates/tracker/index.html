@@ -130,7 +130,7 @@
             <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;">🔔</button>
 
             <div id="profile-icon" style="cursor:pointer; width:40px; height:40px; border-radius:50%; background:#6fbf6f; display:flex; align-items:center; justify-content:center; font-weight:bold;">
-                {{ user.first_name|slice":1" }}{{ user.last_name|slice":1" }}
+                {{ user.first_name|slice:":1" }}{{ user.last_name|slice:":1" }}
             </div>
         </div>
     </header>
