@@ -47,7 +47,7 @@
 
         /* New dashboard above columns */
         .dashboard { max-width: 1200px; margin: 18px auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; z-index: 11; }
-        .dashboard .dash-card { background: var(--surface-color); padding: 12px; border-radius: 10px; border: 1px solid var(--border-color); display:flex; flex-direction:column; gap:6px; }
+        .dashboard .dash-card { background: var(--surface-color); padding: 12px; border-radius: 10px; border: 1px solid var(--border-color); display:flex; flex-direction:column; gap:6px; align-items:center; text-align:center; }
         .dash-card .title { font-size:0.9em; color:var(--text-muted); }
         .dash-card .value { font-weight:700; font-size:1.4em; color:var(--primary-color); }
         .dash-wide { grid-column: span 2; display:flex; gap:12px; }
@@ -377,7 +377,7 @@
         <div class="modal-content" role="dialog" aria-modal="true">
             <button id="profile-modal-close" class="modal-close">&times;</button>
             <h2>Edit Profile</h2>
-            <form action="/profile/edit/" method="post">
+            <form action="{% url 'profile' %}" method="post">
                 {% csrf_token %}
                 <div class="form-row">
                     <input type="text" name="username" placeholder="Username" value="{{ user.username }}" />
