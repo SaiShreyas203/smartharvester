@@ -123,33 +123,26 @@ body {
     {% endif %}
     <form method="post" autocomplete="on">
       {% csrf_token %}
+      {{ form.non_field_errors }}
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-person-circle"></i></span>
-        <input type="text" class="form-control" name="username" placeholder="Username" required>
+        {{ form.username }}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-envelope"></i></span>
-        <input type="email" class="form-control" name="email" placeholder="Email" required>
+        {{ form.email }}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
-        <input type="password" class="form-control" name="password1" placeholder="Password" required>
+        {{ form.password1 }}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
-        <input type="password" class="form-control" name="password2" placeholder="Confirm Password" required>
+        {{ form.password2 }}
       </div>
       <div class="input-group signup-input-group mb-2">
         <span class="input-group-text"><i class="bi bi-globe-asia-australia"></i></span>
-        <select class="form-control" name="country" required>
-          <option value="" disabled selected>Select Country</option>
-          <option>India</option>
-          <option>United States</option>
-          <option>Canada</option>
-          <option>United Kingdom</option>
-          <option>Australia</option>
-          <!-- Add more countries as needed -->
-        </select>
+        {{ form.country }}
       </div>
       <button type="submit" class="signup-btn-3d">Sign Up</button>
     </form>
