@@ -297,49 +297,56 @@
 
 <!-- Dashboard Modal -->
 <div id="dashboard-modal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-content" style="max-width: 620px; border-radius:16px; box-shadow: 0 18px 45px rgba(0,0,0,0.6); background: radial-gradient(circle at top left, rgba(92,184,92,0.35), rgba(15,23,42,0.95));">
         <button class="modal-close" onclick="closeDashboard()">&times;</button>
-        <h2 style="color: var(--primary-color); margin-top: 0;">Dashboard Overview</h2>
+        <h2 style="color: var(--primary-color); margin: 0 0 6px 0;">Dashboard Overview</h2>
+        <p style="margin:0 0 16px 0; color:var(--text-muted); font-size:0.9em;">Quick snapshot of your crops and harvests.</p>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:15px;">
-            <div class="dash-card">
+        <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:14px; margin-top:10px;">
+            <div class="dash-card" style="box-shadow:0 10px 25px rgba(0,0,0,0.55); transform: translateY(0);">
                 <div class="title">Total Plantings</div>
                 <div class="value">{{ stats.total_plantings|default:0 }}</div>
+                <small style="font-size:0.75em; color:var(--text-muted);">All batches you've tracked</small>
             </div>
-            <div class="dash-card">
+            <div class="dash-card" style="box-shadow:0 10px 25px rgba(0,0,0,0.55);">
                 <div class="title">Active / Upcoming</div>
                 <div class="value">{{ ongoing|length }} / {{ upcoming|length }}</div>
+                <small style="font-size:0.75em; color:var(--text-muted);">Currently growing / planned</small>
             </div>
-            <div class="dash-card">
+            <div class="dash-card" style="box-shadow:0 10px 25px rgba(0,0,0,0.55);">
                 <div class="title">Completed Cycles</div>
                 <div class="value">{{ stats.completed_cycles|default:0 }}</div>
+                <small style="font-size:0.75em; color:var(--text-muted);">Finished from seed to harvest</small>
             </div>
-            <div class="dash-card">
+            <div class="dash-card" style="box-shadow:0 10px 25px rgba(0,0,0,0.55);">
                 <div class="title">Average Yield</div>
                 <div class="value">{{ stats.avg_yield|default:'-' }}</div>
+                <small style="font-size:0.75em; color:var(--text-muted);">Per completed planting</small>
             </div>
-            <div class="dash-card" style="grid-column:span 2;">
+        </div>
+
+        <div style="margin-top:18px; display:grid; grid-template-columns:2fr 1fr; gap:16px; align-items:stretch;">
+            <div class="dash-card" style="box-shadow:0 12px 30px rgba(0,0,0,0.55);">
                 <div class="title">Next Harvest</div>
-                <div class="value">
+                <div class="value" style="font-size:1.1em;">
                     {% if stats.next_harvest %}
                         {{ stats.next_harvest.crop_name }} — {{ stats.next_harvest.harvest_date|date:"M d, Y" }}
                     {% else %}
-                        — No scheduled harvest
+                        No scheduled harvest yet
                     {% endif %}
+                </div>
+                <small style="font-size:0.8em; color:var(--text-muted);">The closest harvest date in your schedule.</small>
+            </div>
+            <div class="dash-card" style="box-shadow:0 12px 30px rgba(0,0,0,0.55); display:flex; flex-direction:column; justify-content:center; gap:6px;">
+                <div style="font-size:0.85em; color:var(--text-muted);">Snapshot</div>
+                <div style="font-size:0.9em;">
+                    <div><strong>Active:</strong> {{ ongoing|length }}</div>
+                    <div><strong>Upcoming:</strong> {{ upcoming|length }}</div>
+                    <div><strong>Completed:</strong> {{ stats.completed_cycles|default:0 }}</div>
                 </div>
             </div>
         </div>
-            <div><strong>Active:</strong> {{ ongoing|length }} &nbsp; | &nbsp; <strong>Upcoming:</strong> {{ upcoming|length }}</div>
-            <div><strong>Completed Cycles:</strong> {{ stats.completed_cycles|default:0 }}</div>
-            <div><strong>Average Yield:</strong> {{ stats.avg_yield|default:'-' }}</div>
-            <div>
-                <strong>Next Harvest:</strong><br>
-                {% if stats.next_harvest %}
-                    {{ stats.next_harvest.crop_name }} — {{ stats.next_harvest.harvest_date|date:"M d, Y" }}
-                {% else %}
-                    — No scheduled harvest
-                {% endif %}
-            </div>
+    </div>
         </div>
     </div>
 </div>
@@ -381,7 +388,11 @@
                 <div class="form-row">
                     <input type="password" name="password" placeholder="New password (optional)" />
                 </div>
-                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+                <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:8px;">
+                    <form action="{% url 'logout' %}" method="post" style="margin:0;">
+                        {% csrf_token %}
+                        <button type="submit" class="add-button" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color);">Logout</button>
+                    </form>
                     <button type="submit" class="add-button">Save</button>
                 </div>
             </form>
