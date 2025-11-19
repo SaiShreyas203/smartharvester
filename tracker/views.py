@@ -14,6 +14,7 @@ from django.shortcuts import render
 
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render, redirect
+from .forms import SignUpForm
 
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
