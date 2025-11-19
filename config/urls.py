@@ -11,4 +11,6 @@ urlpatterns = [
     path('profile/', views.profile, name='profile'),
     # Django auth URLs
     path('accounts/', include('django.contrib.auth.urls')),
+    path('', include('tracker.urls')),
+    
 ]
