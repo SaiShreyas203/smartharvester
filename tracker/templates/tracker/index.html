@@ -1,4 +1,3 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -21,36 +20,46 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0; display: flex; flex-direction: column;
             position: relative; color: var(--text-color);
-            transition: background 2s ease; min-height: 100%;
+            transition: background 2s ease;
+            min-height: 100%; 
         }
         body.day { background: linear-gradient(to bottom, var(--day-bg-start), var(--day-bg-end)) no-repeat; background-attachment: fixed; }
         body.evening { background: linear-gradient(to bottom, var(--evening-bg-start), var(--evening-bg-end)) no-repeat; background-attachment: fixed; }
         body.night { background: linear-gradient(to bottom, var(--night-bg-start), var(--night-bg-end)) no-repeat; background-attachment: fixed; }
+
         .scene, #weather-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
         .forest-layer { position: absolute; bottom: 0; left: 0; width: 200%; height: 100%; background-repeat: repeat-x; background-position: bottom left; transition: background-image 2s ease-in-out; }
         #sky-orb { position: absolute; top: 10%; right: 15%; width: 60px; height: 60px; border-radius: 50%; transition: all 2s ease; }
         body.day #sky-orb { background: var(--sun-color); box-shadow: 0 0 30px var(--sun-color); }
         body.evening #sky-orb { background: #ff8c00; box-shadow: 0 0 40px #ff8c00; }
         body.night #sky-orb { background: var(--moon-color); box-shadow: 0 0 30px var(--moon-color); }
+
         #forest-back { animation: parallax 60s linear infinite; z-index: 2; opacity: 0.6; }
         #forest-mid { animation: parallax 40s linear infinite; z-index: 3; opacity: 0.8; }
         #forest-front { animation: parallax 20s linear infinite; z-index: 4; }
+
         .header, .main-content-wrapper, .footer { z-index: 10; position: relative; }
         .header { display: flex; justify-content: space-between; align-items: center; padding: 1em 2em; background: rgba(0,0,0,0.1); backdrop-filter: blur(5px); border-bottom: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
         .logo-title { display: flex; align-items: center; gap: 0.75em; }
         .logo svg { width: 40px; height: 40px; fill: var(--primary-color); }
         h1 { margin: 0; font-size: 1.8em; }
+        
+        .header-profilegroup { display: flex; align-items: center; gap: .8em; }
+        .profile-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2.5px solid #61c07a; background: #e9fff8; text-align:center; font-weight:bold; color:#188a64; font-size:1.22em; line-height:40px; display: flex; align-items: center; justify-content: center; }
+        .dropdown-menu-end { right: 0; left: auto; }
+        
         .add-button { display: inline-flex; align-items: center; gap: 0.5em; background-image: linear-gradient(to right, var(--primary-color) 0%, var(--primary-darker) 100%); color: white; padding: 12px 20px; text-decoration: none; border-radius: 50px; font-weight: bold; white-space: nowrap; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s ease; }
         .add-button:hover { transform: translateY(-2px); box-shadow: 0 7px 20px rgba(0,0,0,0.3); background-image: linear-gradient(to right, #6fbf6f 0%, #5cb85c 100%); }
         .add-button svg { width: 1.2em; height: 1.2em; }
-        .header-profilegroup { display: flex; align-items: center; gap: .8em; }
-        .profile-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2.5px solid #61c07a;
-            background: #e9fff8; text-align:center; font-weight:bold; color:#188a64; font-size:1.22em; line-height:40px;
-            display: flex; align-items: center; justify-content: center;
-        }
-        .dropdown-menu-end { right: 0; left: auto; }
-        .main-content-wrapper { display: flex; padding: 15px; gap: 10px; max-width: 1200px; margin: 0 auto; }
-        .footer { text-align: center; padding: 1em; font-size: 0.9em; color: var(--text-muted); background: rgba(0,0,0,0.2); backdrop-filter: blur(5px); flex-shrink: 0; }
+
+        .welcome-banner {background:linear-gradient(100deg,#def7e9 70%,#edfdf1 100%);border-radius:13px;color:#11614b;padding:0.9em 1.4em;margin:20px auto 1.0em auto;font-size:1.18em;box-shadow:0 2px 19px #00ae5e0c;letter-spacing:0.1em;max-width:500px;}
+        .dashboard-cards{display:flex;gap:1.1em;flex-wrap:wrap;justify-content:center;margin-bottom:2.1em;}
+        .dashboard-card{background:rgba(255,255,255,0.95);border-radius:1.35em;box-shadow:0 8px 28px #1a4a2b23,0 1.5px 6px #79d9b429;padding:1.2em 1.5em 1em 1.3em;min-width:155px;flex:1 0 150px;display:flex;flex-direction:column;align-items:flex-start;gap:0.17em;font-weight:600;justify-content:center;text-align:left;}
+        .dashboard-card .icon{font-size:2em;margin-bottom:.2em;}
+        .timeline-bar{margin:2.2em 0 2.3em 0;padding:1.2em 1em;background:#e9fcee;border-radius:12px;box-shadow:0 4px 20px #19b96a1b;text-align:center;}
+        .timeline-event{display:inline-block;margin:0 1.1em;}
+        .timeline-dot{width:18px;height:18px;background:#71e1a7;border-radius:50%;border:2.5px solid #17b66d;display:inline-block;margin-bottom:5px;}
+        .timeline-caption{font-size:.99em;color:#076342;}
         .content-column { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         .content-column h2 { color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5em; margin: 0 0 10px 0; }
         .planting-grid { perspective: 1000px; }
@@ -73,32 +82,10 @@
         #modal-title { margin-top: 0; color: var(--primary-color); }
         #modal-notes p { font-style: italic; }
         #modal-steps-list { padding-left: 20px; }
-        /* New stuff below */
-        .welcome-banner {background:linear-gradient(100deg,#def7e9 70%,#edfdf1 100%);border-radius:13px;color:#11614b;
-        padding:0.9em 1.4em;margin-bottom:1.6em;font-size:1.18em;box-shadow:0 2px 19px #00ae5e0c;letter-spacing:0.1em;}
-        .dashboard-cards{display:flex;gap:1.1em;flex-wrap:wrap;justify-content:center;margin-bottom:2.1em;}
-        .dashboard-card{background:rgba(255,255,255,0.95);border-radius:1.35em;box-shadow:0 8px 28px #1a4a2b23,
-        0 1.5px 6px #79d9b429;padding:1.2em 1.5em 1em 1.3em;min-width:155px;flex:1 0 150px;display:flex;
-        flex-direction:column;align-items:flex-start;gap:0.17em;font-weight:600;justify-content:
-        center;text-align:left;}
-        .dashboard-card .icon{font-size:2em;margin-bottom:.2em;}
-        @media(max-width:800px){.dashboard-cards{flex-direction:column;align-items:stretch;}.dashboard-card{min-width:unset;}}
-        .empty-category{background:#f0fffa;border-radius:10px;padding:1em 1.4em;margin-top:.5em;margin-bottom:1.2em;
-        text-align:center;color:#17935b;font-weight:500;font-size:1.08em;opacity:.85;}
-        .timeline-bar{margin:2.2em 0 2.3em 0;padding:1.2em 1em;background:#e9fcee;border-radius:12px;box-shadow:0 4px 20px #19b96a1b;text-align:center;}
-        .timeline-event{display:inline-block;margin:0 1.1em;}
-        .timeline-dot{width:18px;height:18px;background:#71e1a7;border-radius:50%;border:2.5px solid #17b66d;display:inline-block;margin-bottom:5px;}
-        .timeline-caption{font-size:.99em;color:#076342;}
-        .bottom-quote{margin:3em auto 1.1em auto;background:#f7fff8;border-left:5px solid #61c07a;border-radius:0px 11px 11px 0px;font-size:1.06em;color:#08874e;max-width:470px;padding:0.6em 1.5em;font-style:italic;box-shadow:0 2px 10px #9bfec72a;opacity:.92;}
-        /* Responsive fixes for new elements */
-        @media (max-width: 900px) {
-            .main-content-wrapper { flex-direction: column; overflow: auto; }
-            .header { flex-direction: column; gap: 1em; padding: 1em; }
-            .scene, #walking-deer { display: none; }
-        }
-        @media (max-width:460px) {
-            .welcome-banner, .dashboard-card, .timeline-bar { margin-left: .6em; margin-right: .6em;}
-        }
+        .empty-category { background: #f0fffa; border-radius: 10px; padding: 1em 1.4em; margin-top: .5em; margin-bottom: 1.2em; text-align: center; color: #17935b; font-weight: 500; font-size: 1.08em; opacity: .85; }
+        .bottom-quote {margin:3em auto 1.1em auto;background:#f7fff8;border-left:5px solid #61c07a;border-radius:0px 11px 11px 0px;font-size:1.06em;color:#08874e;max-width:470px;padding:0.6em 1.5em;font-style:italic;box-shadow:0 2px 10px #9bfec72a;opacity:.92;}
+        @media (max-width: 900px) { .main-content-wrapper { flex-direction: column; overflow: auto; } .header { flex-direction: column; gap: 1em; padding: 1em; } .scene, #walking-deer { display: none; } }
+        @media (max-width:460px) { .welcome-banner, .dashboard-card, .timeline-bar { margin-left: .6em; margin-right: .6em;} }
     </style>
 </head>
 <body>
@@ -121,59 +108,66 @@
             <h1>TerraTrack</h1>
         </div>
         <div class="header-profilegroup">
-            <!-- Add "Add New Planting" button -->
+
+            <!-- Add New Planting button -->
             <a href="{% url 'add_planting' %}" class="add-button">
                 <i class="bi bi-plus-circle-fill"></i>
                 <span>Add New Planting</span>
             </a>
+
             <!-- Notifications bell with dummy dropdown -->
             <div class="dropdown">
                 <button class="btn btn-link p-0" id="notifDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
                     <i class="bi bi-bell-fill fs-4 text-success"></i>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notifDropdown" style="min-width:200px;">
-                <li><span class="dropdown-item-text small text-muted">No new notifications. Stay tuned for reminders!</span></li>
+                    <li><span class="dropdown-item-text small text-muted">No new notifications. Stay tuned for reminders!</span></li>
                 </ul>
             </div>
-            <!-- Profile avatar dropdown (show initials if no avatar) -->
+
+            <!-- Profile avatar dropdown (initials if no avatar) -->
             <div class="dropdown">
-            <button class="btn p-0 border-0 bg-transparent" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                {% if request.user.userprofile and request.user.userprofile.avatar_url %}
-                <img src="{{ request.user.userprofile.avatar_url }}" class="profile-avatar" alt="profile">
-                {% else %}
-                <span class="profile-avatar" id="profileInitials">
-                    {% if request.user.first_name or request.user.last_name %}
-                    {{ request.user.first_name|slice:":1" }}{{ request.user.last_name|slice:":1" }}
-                    {% elif request.user.username %}
-                    {{ request.user.username|slice:":2"|upper }}
-                    {% else %}U{% endif %}
-                </span>
-                {% endif %}
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
-                <li>
-                <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#profileModal">
-                    <i class="bi bi-person-fill"></i> Profile Settings
-                </a>
-                </li>
-                <li><a class="dropdown-item" href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-            </ul>
-          </div>
+                <button class="btn p-0 border-0 bg-transparent" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    {% if request.user.userprofile and request.user.userprofile.avatar_url %}
+                        <img src="{{ request.user.userprofile.avatar_url }}" class="profile-avatar" alt="profile">
+                    {% else %}
+                        <span class="profile-avatar" id="profileInitials">
+                            {% if request.user.first_name or request.user.last_name %}
+                                {{ request.user.first_name|slice:":1" }}{{ request.user.last_name|slice:":1" }}
+                            {% elif request.user.username %}
+                                {{ request.user.username|slice:":2"|upper }}
+                            {% else %}U{% endif %}
+                        </span>
+                    {% endif %}
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
+                    <li>
+                        <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#profileModal">
+                            <i class="bi bi-person-fill"></i> Profile Settings
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{% url 'logout' %}">
+                            <i class="bi bi-box-arrow-right"></i> Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
         </div>
     </header>
 
-    <!-- Welcome banner -->
+    <!-- Welcome Banner -->
     <div class="welcome-banner mb-4">
-    Welcome back, <b>
-        {% if request.user.first_name or request.user.last_name %}
-        {{ request.user.first_name }} {{ request.user.last_name }}
-        {% else %}
-        {{ request.user.username|default:"Gardener" }}
-        {% endif %}
-    </b>! 🌱 Ready to grow more today?
+        Welcome back, <b>
+            {% if request.user.first_name or request.user.last_name %}
+                {{ request.user.first_name }} {{ request.user.last_name }}
+            {% else %}
+                {{ request.user.username|default:"Gardener" }}
+            {% endif %}
+        </b>! 🌱 Ready to grow more today?
     </div>
 
-    <!-- Quick dashboard cards -->
+    <!-- Quick Dashboard Cards -->
     {% with total_plants=ongoing|length|add:upcoming|length|add:past|length %}
     <div class="dashboard-cards">
         <div class="dashboard-card">
@@ -190,37 +184,40 @@
             <span class="icon text-warning"><i class="bi bi-list-task"></i></span>
             <span>Today's Tasks</span>
             <span class="h5">
-            {% if ongoing %}
-                • Check care for {{ ongoing.0.crop_name }}
-            {% else %}
-                All caught up!
-            {% endif %}
+                {% if ongoing %}• Check care for {{ ongoing.0.crop_name }}
+                {% else %}All caught up!{% endif %}
             </span>
         </div>
     </div>
     {% endwith %}
 
-    <!-- Visual timeline widget -->
+    <!-- Timeline Bar -->
     <div class="timeline-bar">
-    <div class="timeline-event">
-        <span class="timeline-dot"></span>
-        <div class="timeline-caption">Last Planted<br>
-        {% if ongoing %}
-            <b>{{ ongoing.0.crop_name|default:"-" }}</b><br>
-            {{ ongoing.0.planting_date|date:"M j" }}
-        {% else %}—{% endif %}
+        <div class="timeline-event">
+            <span class="timeline-dot"></span>
+            <div class="timeline-caption">Last Planted<br>
+                {% if ongoing %}
+                    <b>{{ ongoing.0.crop_name|default:"-" }}</b><br>
+                    {{ ongoing.0.planting_date|date:"M j" }}
+                {% elif past %}
+                    <b>{{ past.0.crop_name|default:"-" }}</b><br>
+                    {{ past.0.planting_date|date:"M j" }}
+                {% else %}—{% endif %}
+            </div>
         </div>
-    </div>
-    <span style="font-size:26px;color:#15b980;">—</span>
-    <div class="timeline-event">
-        <span class="timeline-dot"></span>
-        <div class="timeline-caption">Next Harvest<br>
-        {% if upcoming %}
-            <b>{{ upcoming.0.crop_name|default:"-" }}</b><br>
-            {{ upcoming.0.harvest_date|date:"M j" }}
-        {% else %}—{% endif %}
+        <span style="font-size:26px;color:#15b980;">—</span>
+        <div class="timeline-event">
+            <span class="timeline-dot"></span>
+            <div class="timeline-caption">Next Harvest<br>
+                {% if upcoming %}
+                    <b>{{ upcoming.0.crop_name|default:"-" }}</b><br>
+                    {{ upcoming.0.harvest_date|date:"M j" }}
+                {% elif past %}
+                    <b>{{ past.0.crop_name|default:"-" }}</b><br>
+                    {{ past.0.harvest_date|date:"M j" }}
+                {% else %}—{% endif %}
+            </div>
         </div>
-    </div>
     </div>
 
     <main class="main-content-wrapper">
@@ -255,7 +252,7 @@
                     </div>
                     {% if planting.image_url %}
                         <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 120px; max-height: 80px; margin: 10px 0; border-radius: 10px;" />
+                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
                         </div>
                     {% endif %}
                     {% if planting.notes %}
@@ -276,11 +273,11 @@
                     </div>
                 </div>
                 {% empty %}
-                <div class="empty-category">No plantings in this category. <a href="{% url 'add_planting' %}">Start a new crop?</a></div>
+                <div class="empty-category">No plantings in this category. <a href="{% url 'add_planting' %}" style="color:#167850;">Start a new crop?</a></div>
                 {% endfor %}
             </div>
         </div>
-        <!-- Ongoing Harvests Column -->
+        <!-- Ongoing Harvests -->
         <div class="content-column">
             <h2>Ongoing Harvests</h2>
             <div class="planting-grid">
@@ -311,7 +308,7 @@
                     </div>
                     {% if planting.image_url %}
                         <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 120px; max-height: 80px; margin: 10px 0; border-radius: 10px;" />
+                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
                         </div>
                     {% endif %}
                     {% if planting.notes %}
@@ -336,7 +333,7 @@
                 {% endfor %}
             </div>
         </div>
-        <!-- Past Harvests Column -->
+        <!-- Past Harvests -->
         <div class="content-column">
             <h2>Past Harvests</h2>
             <div class="planting-grid">
@@ -367,7 +364,7 @@
                     </div>
                     {% if planting.image_url %}
                         <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 120px; max-height: 80px; margin: 10px 0; border-radius: 10px;" />
+                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
                         </div>
                     {% endif %}
                     {% if planting.notes %}
@@ -394,22 +391,24 @@
         </div>
     </main>
 
+    <!-- QUOTE/TIPS BAR -->
     <div class="bottom-quote">
-    Sow, Grow, Crop. 🌾<br>
-    <span class="small">Tip: Edit your profile above. Try succession planting for a continuous harvest! Stay tuned for notification upgrades and more actionable tips.</span>
+        Sow, Grow, Crop. 🌾<br>
+        <span class="small">Tip: Edit your profile above. Try companion planting to optimize growth. Set reminders for care tasks and keep a log of your harvests!</span>
     </div>
 
-    <!-- Planting card details -->
-    <div id="details-modal" class="modal-overlay" style="display:none;">
-      <div class="modal-content">
-        <button id="modal-close-btn" class="modal-close">&times;</button>
-        <h2 id="modal-title"></h2>
-        <div id="modal-notes"></div>
-        <h4>Steps to be followed:</h4>
-        <ul id="modal-steps-list"></ul>
-      </div>
+    <!-- MODAL for planting details -->
+    <div id="details-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="modal-close-btn" class="modal-close">&times;</button>
+            <h2 id="modal-title"></h2>
+            <div id="modal-notes"></div>
+            <h4>Steps to be followed:</h4>
+            <ul id="modal-steps-list"></ul>
+        </div>
     </div>
-    <!-- Profile edit modal (just frontend, not working backend submit) -->
+
+    <!-- Profile modal -->
     <div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profileModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -441,21 +440,18 @@
       </div>
     </div>
 
+    <footer class="footer">Sow, Grow, Crop.</footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const body = document.body;
-            const weatherContainer = document.getElementById('weather-container');
-            const firefliesContainer = document.getElementById('fireflies');
-            // Add these features to your existing scene logic!
-            // ...keep your animated scene script as before...
-
-            // Modal Logic for planting details
+            // Original animation, weather and modal logic here...
+            // ... (unchanged, keep your effects!) ...
+            // Planting card modal logic
             const modal = document.getElementById('details-modal');
+            const closeModalBtn = document.getElementById('modal-close-btn');
             const modalTitle = document.getElementById('modal-title');
             const modalNotes = document.getElementById('modal-notes');
             const modalStepsList = document.getElementById('modal-steps-list');
-            const closeModalBtn = document.getElementById('modal-close-btn');
             document.querySelectorAll('.planting-card').forEach(card => {
                 card.addEventListener('click', () => {
                     const title = card.querySelector('h3').textContent;
@@ -471,7 +467,7 @@
             closeModalBtn.addEventListener('click', closeModal);
             modal.addEventListener('click', (event) => { if (event.target === modal) closeModal(); });
 
-            // Optional client initials fallback
+            // Profile initials fallback
             const initialsEl = document.getElementById('profileInitials');
             if (initialsEl && !initialsEl.textContent.trim()) initialsEl.textContent = "U";
         });
