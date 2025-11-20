@@ -24,7 +24,6 @@ def load_plant_data():
     with open(DATA_FILE_PATH, 'r') as f:
         return json.load(f)
 
-
 def index(request):
     user_plantings = request.session.get('user_plantings', [])
     today = date.today()
