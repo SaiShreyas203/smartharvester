@@ -13,27 +13,41 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# local imports
 from .forms import SignUpForm
 from .models import UserProfile
 
-from smartharvest_plan.plan import calculate_plan # My PyPi Library
+# Lazy import helper will locate the plan function at call time.
 
 # Lazy import helper: try to import the real calculate_plan, otherwise
 # provide a safe fallback so the app won't crash at module import time.
 def _get_calculate_plan():
+    """Return a callable to calculate a plan.
+
+    Tries several common function names in `smartharvest_plan.plan` and
+    returns the first callable found. If the module can't be imported or
+    no callable is found, returns a fallback that returns an empty list.
+    """
     try:
-        from smartharvest_plan.plan import calculate_plan
-        return calculate_plan
+        import importlib
+        mod = importlib.import_module('smartharvest_plan.plan')
+        # Try common function names; this makes the code robust to slight
+        # naming differences in the installed package.
+        for name in ('calculate_plan', 'generate_plan', 'create_plan', 'build_plan', 'plan'):
+            if hasattr(mod, name):
+                candidate = getattr(mod, name)
+                if callable(candidate):
+                    logger.info('Using %s from smartharvest_plan.plan', name)
+                    return candidate
+        logger.warning('Imported smartharvest_plan.plan but no callable plan function found')
     except Exception as e:
-        logger.warning('Could not import smartharvest_plan.plan.calculate_plan: %s', e)
+        logger.warning('Could not import smartharvest_plan.plan: %s', e)
 
-        def _fallback(crop_name, planting_date, plant_data):
-            # Return an empty plan so the rest of the app can continue to run.
-            # This prevents import-time failures; preserve behaviour once the
-            # package is fixed by returning an informative placeholder.
-            return []
+    # Fallback that returns an empty plan so the app remains usable.
+    def _fallback(*args, **kwargs):
+        return []
 
-        return _fallback
+    return _fallback
 
 DATA_FILE_PATH = os.path.join(settings.BASE_DIR, 'tracker', 'data.json')
 
@@ -114,7 +128,8 @@ def save_planting(request):
         planting_date = date.fromisoformat(planting_date_str)
 
         plant_data = load_plant_data()
-        calculated_plan = calculate_plan(crop_name, planting_date, plant_data)
+        calculate = _get_calculate_plan()
+        calculated_plan = calculate(crop_name, planting_date, plant_data)
 
         # Convert due_date to ISO strings for storage in session
         for task in calculated_plan:
@@ -184,7 +199,8 @@ def update_planting(request, planting_id):
         planting_date = date.fromisoformat(planting_date_str)
 
         plant_data = load_plant_data()
-        calculated_plan = calculate_plan(crop_name, planting_date, plant_data)
+        calculate = _get_calculate_plan()
+        calculated_plan = calculate(crop_name, planting_date, plant_data)
 
         # Convert due_date to ISO strings for storage in session
         for task in calculated_plan:
