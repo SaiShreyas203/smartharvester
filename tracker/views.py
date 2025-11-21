@@ -18,6 +18,7 @@ from .forms import SignUpForm
 from .models import UserProfile
 
 # Lazy import helper will locate the plan function at call time.
+from django.http import JsonResponse
 
 # Lazy import helper: try to import the real calculate_plan, otherwise
 # provide a safe fallback so the app won't crash at module import time.
@@ -274,6 +275,16 @@ def cognito_callback(request):
         logger.exception('Cognito callback failure: %s', e)
         return redirect('login')
 
+
+def profile(request):
+    if not hasattr(request, "user_data"):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    return JsonResponse({
+        "email": request.user_data["email"],
+        "sub": request.user_data["sub"]
+    })
+    
 # ========================
 # USER SIGNUP VIEW
 # ========================
