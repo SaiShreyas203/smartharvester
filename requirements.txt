@@ -9,3 +9,5 @@ dj-database-url
 python-dotenv
 # add any other project-specific packages here
 Pillow
+requests
+python-jose[cryptography]

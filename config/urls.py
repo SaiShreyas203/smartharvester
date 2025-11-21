@@ -12,5 +12,8 @@ urlpatterns = [
     # Django auth URLs
     path('accounts/', include('django.contrib.auth.urls')),
     path('', include('tracker.urls')),
+    # Cognito Hosted UI endpoints
+    path('auth/login/', views.cognito_login, name='cognito_login'),
+    path('auth/callback/', views.cognito_callback, name='cognito_callback'),
     
 ]

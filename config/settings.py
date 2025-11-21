@@ -32,6 +32,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'tracker.middleware.CognitoTokenMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -119,3 +120,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
+# --- AWS COGNITO HOSTED UI SETTINGS ---
+# Configure these via environment variables in each environment.
+COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', 'us-east-1_HGEM2vRNI')
+COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID', '')
+COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET', '')
+COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
+# Domain for the hosted UI, e.g. 'your-domain-prefix.auth.us-east-1.amazoncognito.com'
+COGNITO_DOMAIN = os.environ.get('COGNITO_DOMAIN', '')
+# Redirect URI that Cognito will call after authentication. Set this in your app client too.
+COGNITO_REDIRECT_URI = os.environ.get('COGNITO_REDIRECT_URI', 'http://localhost:8000/auth/callback/')

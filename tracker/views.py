@@ -229,6 +229,51 @@ def delete_planting(request, planting_id):
             pass
     return redirect('index')
 
+
+def cognito_login(request):
+    """Redirect user to Cognito Hosted UI login."""
+    from .cognito import build_authorize_url
+    url = build_authorize_url()
+    return redirect(url)
+
+
+def cognito_callback(request):
+    """Handle callback from Cognito Hosted UI, exchange code for tokens,
+    verify ID token, and log the user into Django.
+    """
+    from .cognito import exchange_code_for_tokens, verify_id_token
+    from django.contrib.auth import login
+    from django.contrib.auth.models import User
+
+    code = request.GET.get('code')
+    state = request.GET.get('state')
+    if not code:
+        return redirect('login')
+    try:
+        token_resp = exchange_code_for_tokens(code)
+        id_token = token_resp.get('id_token')
+        if not id_token:
+            raise ValueError('No id_token in token response')
+        payload = verify_id_token(id_token)
+        # Map Cognito identity to Django user
+        username = payload.get('email') or payload.get('sub')
+        if not username:
+            username = payload.get('sub')
+        user, created = User.objects.get_or_create(username=username, defaults={
+            'email': payload.get('email', ''),
+            'first_name': payload.get('given_name', ''),
+            'last_name': payload.get('family_name', ''),
+        })
+        # Optionally update profile fields here
+        user.backend = 'django.contrib.auth.backends.ModelBackend'
+        login(request, user)
+        # Optionally store tokens in session
+        request.session['cognito_tokens'] = token_resp
+        return redirect('/')
+    except Exception as e:
+        logger.exception('Cognito callback failure: %s', e)
+        return redirect('login')
+
 # ========================
 # USER SIGNUP VIEW
 # ========================
