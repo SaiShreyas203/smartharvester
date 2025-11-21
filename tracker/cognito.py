@@ -1,5 +1,4 @@
 import time
-import requests
 from jose import jwt
 from jose.utils import base64url_decode
 
@@ -14,6 +13,8 @@ def _fetch_jwks():
     if JWKS_CACHE['keys'] and now - JWKS_CACHE['fetched_at'] < JWKS_TTL:
         return JWKS_CACHE['keys']
     jwks_url = f"https://cognito-idp.{settings.COGNITO_REGION}.amazonaws.com/{settings.COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+    # import requests lazily so missing deps won't crash Django at import time
+    import requests
     r = requests.get(jwks_url, timeout=5)
     r.raise_for_status()
     jwks_data = r.json()
@@ -63,10 +64,12 @@ def exchange_code_for_tokens(code):
     auth = None
     # If client secret is configured, use HTTP Basic auth as per OAuth2
     if settings.COGNITO_CLIENT_SECRET:
+        # HTTPBasicAuth is provided by requests; import lazily
         from requests.auth import HTTPBasicAuth
         auth = HTTPBasicAuth(settings.COGNITO_CLIENT_ID, settings.COGNITO_CLIENT_SECRET)
         # remove client_id from body when using HTTP Basic
         data.pop('client_id', None)
+    import requests
     r = requests.post(token_url, data=data, headers=headers, auth=auth, timeout=5)
     r.raise_for_status()
     return r.json()
