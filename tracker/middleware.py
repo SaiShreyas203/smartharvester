@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.shortcuts import redirect
 from .cognito import verify_id_token, exchange_code_for_tokens
+from .cognito import validate_cognito_token
 
 logger = logging.getLogger(__name__)
 

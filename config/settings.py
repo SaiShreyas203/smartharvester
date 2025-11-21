@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'tracker',
     'storages',
     'core',  # provides health endpoint and small utilities
+    "cognito_auth",
 ]
 
 MIDDLEWARE = [
@@ -35,8 +36,7 @@ MIDDLEWARE = [
     'tracker.middleware.CognitoTokenMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'auth.middleware.CognitoAuthMiddleware',
-
+    'tracker.middleware.CognitoAuthMiddleware',
 
 ]
 

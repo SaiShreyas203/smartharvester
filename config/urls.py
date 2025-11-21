@@ -15,5 +15,5 @@ urlpatterns = [
     # Cognito Hosted UI endpoints
     path('auth/login/', views.cognito_login, name='cognito_login'),
     path('auth/callback/', views.cognito_callback, name='cognito_callback'),
-    
+    path('', include("cognito_auth.urls")),   
 ]
