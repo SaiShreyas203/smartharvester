@@ -7,6 +7,14 @@ from django.conf import settings
 JWKS_CACHE = {'keys': None, 'fetched_at': 0}
 JWKS_TTL = 60 * 60  # 1 hour
 
+import boto3
+import jwt
+from jwt.algorithms import RSAAlgorithm
+
+COGNITO_REGION = "eu-west-1"
+USER_POOL_ID = "your-userpool-id"
+APP_CLIENT_ID = "your-app-client-id"
+
 
 def _fetch_jwks():
     now = time.time()
@@ -73,3 +81,28 @@ def exchange_code_for_tokens(code):
     r = requests.post(token_url, data=data, headers=headers, auth=auth, timeout=5)
     r.raise_for_status()
     return r.json()
+
+def validate_cognito_token(id_token):
+    try:
+        # decode header
+        headers = jwt.get_unverified_header(id_token)
+
+        # get JWKS
+        jwks_url = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{USER_POOL_ID}/.well-known/jwks.json"
+        jwks = boto3.client("cognito-idp").get_jwks_uri(UserPoolId=USER_POOL_ID)
+
+        # fetch public key
+        public_key = RSAAlgorithm.from_jwk(jwks[headers["kid"]])
+
+        decoded = jwt.decode(
+            id_token,
+            public_key,
+            algorithms=["RS256"],
+            audience=APP_CLIENT_ID
+        )
+
+        return decoded
+    
+    except Exception as e:
+        print("Token validation error:", e)
+        return None
