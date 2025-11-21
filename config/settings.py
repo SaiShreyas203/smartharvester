@@ -121,6 +121,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+LOGIN_URL = '/auth/login/'
 
 # --- AWS COGNITO HOSTED UI SETTINGS ---
 # Configure these via environment variables in each environment.
