@@ -24,7 +24,6 @@ INSTALLED_APPS = [
     'tracker',
     'storages',
     'core',  # provides health endpoint and small utilities
-    "cognito_auth",
 ]
 
 MIDDLEWARE = [
