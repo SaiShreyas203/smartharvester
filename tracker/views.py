@@ -620,16 +620,36 @@ def signup(request):
     if request.method == 'POST':
         form = SignUpForm(request.POST)
         if form.is_valid():
+            username = form.cleaned_data['username']
+            email = form.cleaned_data['email']
+            
+            # Create Django user
             user = User.objects.create_user(
-                username=form.cleaned_data['username'],
-                email=form.cleaned_data['email'],
+                username=username,
+                email=email,
                 password=form.cleaned_data['password1'],
             )
             UserProfile.objects.create(
                 user=user,
                 country=form.cleaned_data['country']
             )
-            user = authenticate(username=form.cleaned_data['username'], password=form.cleaned_data['password1'])
+            
+            # Save user to DynamoDB users table
+            from .dynamodb_helper import save_user_to_dynamodb
+            user_data = {
+                'username': username,
+                'email': email,
+                'sub': f'django_{user.id}',  # Use Django user ID as sub
+                'name': username,
+            }
+            logger.info('Saving new user to DynamoDB: username=%s, email=%s', username, email)
+            if save_user_to_dynamodb(user_data):
+                logger.info('✓ User %s saved to DynamoDB users table', username)
+            else:
+                logger.error('✗ Failed to save user %s to DynamoDB users table', username)
+            
+            # Authenticate and login
+            user = authenticate(username=username, password=form.cleaned_data['password1'])
             if user is not None:
                 login(request, user)
             return redirect('/')
