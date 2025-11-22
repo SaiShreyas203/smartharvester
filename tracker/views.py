@@ -67,40 +67,46 @@ def index(request):
         user_id = get_user_id_from_token(request)
         logger.info('Index view: user_id extracted: %s', user_id if user_id else 'None')
         
+        # Always check session first - it's the most reliable for immediate display
+        session_plantings = request.session.get('user_plantings', [])
+        logger.info('Session contains %d plantings', len(session_plantings))
+        
         if user_id:
             logger.info('Loading plantings from DynamoDB for user_id: %s', user_id)
             # Load from DynamoDB
-            user_plantings = load_user_plantings(user_id)
-            logger.info('Loaded %d plantings from DynamoDB for user %s', len(user_plantings), user_id)
+            dynamodb_plantings = load_user_plantings(user_id)
+            logger.info('Loaded %d plantings from DynamoDB for user %s', len(dynamodb_plantings), user_id)
             
-            # If DynamoDB is empty, check session for fallback data
-            session_plantings = request.session.get('user_plantings', [])
-            if session_plantings:
-                logger.info('Found %d plantings in session for user %s', len(session_plantings), user_id)
-                if not user_plantings:
-                    # Try to migrate session data to DynamoDB
-                    logger.info('Migrating %d plantings from session to DynamoDB for user %s', len(session_plantings), user_id)
-                    if migrate_session_to_dynamodb(user_id, session_plantings):
-                        user_plantings = load_user_plantings(user_id)
-                        # Clear session after successful migration
-                        request.session.pop('user_plantings', None)
-                        logger.info('Migration complete, now have %d plantings in DynamoDB', len(user_plantings))
-                    else:
-                        # Migration failed, use session data as fallback
-                        logger.warning('DynamoDB migration failed, using session data as fallback')
-                        user_plantings = session_plantings
-                else:
-                    # DynamoDB has data, clear session
+            # Use DynamoDB data if available, otherwise use session
+            if dynamodb_plantings:
+                user_plantings = dynamodb_plantings
+                # Clear session if DynamoDB has data
+                if session_plantings:
                     request.session.pop('user_plantings', None)
-                    logger.info('DynamoDB has data, cleared session plantings')
+                    logger.info('Using DynamoDB data (%d plantings), cleared session', len(user_plantings))
+            elif session_plantings:
+                # DynamoDB is empty but session has data - use session and try to migrate
+                user_plantings = session_plantings
+                logger.info('Using session data (%d plantings) - DynamoDB is empty', len(user_plantings))
+                # Try to migrate to DynamoDB in background (don't block display)
+                try:
+                    if migrate_session_to_dynamodb(user_id, session_plantings):
+                        logger.info('Successfully migrated %d plantings to DynamoDB', len(session_plantings))
+                        request.session.pop('user_plantings', None)
+                except Exception as migrate_error:
+                    logger.warning('Migration failed (non-critical): %s', migrate_error)
+            else:
+                # Both are empty
+                user_plantings = []
+                logger.info('No plantings found in DynamoDB or session')
         else:
-            # No user ID - try session as fallback, then empty list
-            logger.warning('No user_id found - trying session fallback')
-            user_plantings = request.session.get('user_plantings', [])
+            # No user ID - use session only
+            logger.warning('No user_id found - using session data only')
+            user_plantings = session_plantings
             if user_plantings:
                 logger.info('Using %d plantings from session (user not authenticated)', len(user_plantings))
             else:
-                logger.info('No plantings found in session either')
+                logger.info('No plantings found in session')
     except Exception as e:
         logger.exception('Error in index view while loading plantings: %s', e)
         # Fallback to session if there's an error
@@ -202,7 +208,7 @@ def save_planting(request):
                 task['due_date'] = task['due_date'].isoformat()
 
         # Save to DynamoDB - REQUIRED for logged-in users
-        from .dynamodb_helper import load_user_plantings, save_user_plantings
+        from .dynamodb_helper import load_user_plantings, save_planting_to_dynamodb
         
         # user_id already retrieved above for image upload
         if not user_id:
@@ -211,11 +217,7 @@ def save_planting(request):
         
         logger.info('Saving planting for user_id: %s', user_id)
         
-        # Load existing plantings from DynamoDB
-        user_plantings = load_user_plantings(user_id)
-        logger.info('Loaded %d existing plantings from DynamoDB for user %s', len(user_plantings), user_id)
-        
-        # Add new planting
+        # Create new planting
         new_planting = {
             'crop_name': crop_name,
             'planting_date': planting_date.isoformat(),
@@ -224,28 +226,29 @@ def save_planting(request):
             'plan': calculated_plan,
             'image_url': image_url
         }
-        user_plantings.append(new_planting)
-        logger.info('Added new planting, total now: %d', len(user_plantings))
         
-        # Save back to DynamoDB
-        logger.info('Attempting to save %d plantings to DynamoDB for user %s', len(user_plantings), user_id)
-        save_success = save_user_plantings(user_id, user_plantings)
-        if save_success:
-            logger.info('✓ Successfully saved %d plantings to DynamoDB for user %s', len(user_plantings), user_id)
-            # Clear any session data after successful DynamoDB save
-            request.session.pop('user_plantings', None)
-            # Verify the save by immediately loading back
-            verify_plantings = load_user_plantings(user_id)
-            logger.info('Verification: Loaded back %d plantings from DynamoDB after save', len(verify_plantings))
-            if len(verify_plantings) != len(user_plantings):
-                logger.error('⚠ WARNING: Saved %d plantings but loaded back %d - data mismatch!', len(user_plantings), len(verify_plantings))
+        # Save individual planting to DynamoDB
+        planting_id = save_planting_to_dynamodb(user_id, new_planting)
+        if planting_id:
+            logger.info('✓ Successfully saved planting %s to DynamoDB for user %s', planting_id, user_id)
+            new_planting['planting_id'] = planting_id
         else:
-            logger.error('✗ FAILED to save planting to DynamoDB for user %s - falling back to session', user_id)
-            # Fallback to session if DynamoDB fails (temporary until table is created)
-            request.session['user_plantings'] = user_plantings
-            request.session.modified = True  # Ensure session is saved
-            logger.warning('Saved to session as fallback. Please create DynamoDB table: python scripts/create_dynamodb_table.py')
-            logger.info('Session now contains %d plantings', len(request.session.get('user_plantings', [])))
+            logger.error('✗ FAILED to save planting to DynamoDB for user %s', user_id)
+            logger.warning('Data will be saved to session only. Please check DynamoDB plantings table.')
+        
+        # Always save to session for immediate visibility
+        user_plantings = load_user_plantings(user_id)
+        # If DynamoDB save failed, add to session list
+        if not planting_id:
+            user_plantings = request.session.get('user_plantings', [])
+            user_plantings.append(new_planting)
+        else:
+            # Reload from DynamoDB to get the saved planting
+            user_plantings = load_user_plantings(user_id)
+        
+        request.session['user_plantings'] = user_plantings
+        request.session.modified = True
+        logger.info('Saved %d plantings to session for immediate display', len(user_plantings))
 
     return redirect('index')
 
@@ -277,7 +280,7 @@ def edit_planting_view(request, planting_id):
 
 def update_planting(request, planting_id):
     if request.method == 'POST':
-        from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        from .dynamodb_helper import load_user_plantings, save_planting_to_dynamodb, get_user_id_from_token
         
         user_id = get_user_id_from_token(request)
         if not user_id:
@@ -286,7 +289,14 @@ def update_planting(request, planting_id):
         
         user_plantings = load_user_plantings(user_id)
         
+        # planting_id is the index in the list
         if planting_id >= len(user_plantings):
+            return redirect('index')
+        
+        # Get the actual planting_id from the database
+        actual_planting_id = user_plantings[planting_id].get('planting_id')
+        if not actual_planting_id:
+            logger.error('Planting at index %d has no planting_id', planting_id)
             return redirect('index')
 
         crop_name = request.POST.get('crop_name')
@@ -321,7 +331,9 @@ def update_planting(request, planting_id):
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        user_plantings[planting_id] = {
+        # Update planting with actual planting_id
+        updated_planting = {
+            'planting_id': actual_planting_id,
             'crop_name': crop_name,
             'planting_date': planting_date.isoformat(),
             'batch_id': batch_id,
@@ -330,15 +342,21 @@ def update_planting(request, planting_id):
             'image_url': image_url
         }
         
-        # Save to DynamoDB
-        if not save_user_plantings(user_id, user_plantings):
+        # Save updated planting to DynamoDB
+        if save_planting_to_dynamodb(user_id, updated_planting):
+            logger.info('✓ Successfully updated planting %s in DynamoDB for user %s', actual_planting_id, user_id)
+            # Update session
+            user_plantings[planting_id] = updated_planting
+            request.session['user_plantings'] = user_plantings
+            request.session.modified = True
+        else:
             logger.error('Failed to update planting in DynamoDB for user %s', user_id)
 
     return redirect('index')
 
 def delete_planting(request, planting_id):
     if request.method == 'POST':
-        from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        from .dynamodb_helper import load_user_plantings, delete_planting_from_dynamodb, get_user_id_from_token
         from .s3_helper import delete_image_from_s3
         
         user_id = get_user_id_from_token(request)
@@ -349,8 +367,13 @@ def delete_planting(request, planting_id):
         user_plantings = load_user_plantings(user_id)
         
         try:
-            # Get image URL before deleting planting
+            # planting_id is the index in the list
+            if planting_id >= len(user_plantings):
+                return redirect('index')
+            
+            # Get the actual planting_id from the database
             planting_to_delete = user_plantings[planting_id]
+            actual_planting_id = planting_to_delete.get('planting_id')
             image_url = planting_to_delete.get('image_url', '')
             
             # Delete image from S3 if it exists
@@ -358,16 +381,20 @@ def delete_planting(request, planting_id):
                 delete_image_from_s3(image_url)
                 logger.info('Deleted image from S3: %s', image_url)
             
-            # Delete planting from list
-            del user_plantings[planting_id]
-            
-            # Save to DynamoDB
-            if save_user_plantings(user_id, user_plantings):
-                logger.info('✓ Successfully deleted planting %d from DynamoDB for user %s', planting_id, user_id)
+            # Delete planting from DynamoDB using actual planting_id
+            if actual_planting_id:
+                if delete_planting_from_dynamodb(actual_planting_id):
+                    logger.info('✓ Successfully deleted planting %s from DynamoDB for user %s', actual_planting_id, user_id)
+                    # Update session
+                    user_plantings.pop(planting_id)
+                    request.session['user_plantings'] = user_plantings
+                    request.session.modified = True
+                else:
+                    logger.error('✗ Failed to delete planting from DynamoDB for user %s', user_id)
             else:
-                logger.error('✗ Failed to delete planting from DynamoDB for user %s', user_id)
-        except IndexError:
-            logger.warning('Planting index %d out of range for user %s', planting_id, user_id)
+                logger.error('Planting at index %d has no planting_id', planting_id)
+        except (IndexError, KeyError) as e:
+            logger.warning('Error deleting planting: %s', e)
     return redirect('index')
 
 
@@ -501,7 +528,21 @@ def cognito_callback(request):
             'access_token': tokens.get('access_token'),
             'refresh_token': tokens.get('refresh_token'),
         }
-        logger.info('Cognito callback: Tokens saved to session, redirecting to homepage')
+        logger.info('Cognito callback: Tokens saved to session')
+        
+        # Save user data to DynamoDB users table
+        from .dynamodb_helper import get_user_data_from_token, save_user_to_dynamodb
+        user_data = get_user_data_from_token(request)
+        if user_data:
+            logger.info('Saving user data to DynamoDB users table')
+            if save_user_to_dynamodb(user_data):
+                logger.info('✓ User data saved to DynamoDB users table')
+            else:
+                logger.warning('Failed to save user data to DynamoDB (non-critical)')
+        else:
+            logger.warning('Could not extract user data from token for DynamoDB save')
+        
+        logger.info('Cognito callback: Redirecting to homepage')
     except OperationalError as e:
         logger.exception('Database error saving session: %s', e)
         # Return tokens in response if we can't save to session

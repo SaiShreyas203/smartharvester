@@ -115,10 +115,9 @@ AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
 AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
 
 # -------- AWS DYNAMODB CONFIGURATION --------
-# DynamoDB table name for storing user plantings
-# Note: This table uses 'user_id' as the partition key and stores all plantings for a user as a JSON array
-# If you want to use a different table name, set DYNAMODB_PLANTINGS_TABLE_NAME in your .env file
-DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv('DYNAMODB_PLANTINGS_TABLE_NAME', 'user_plantings')
+# DynamoDB table names
+DYNAMODB_USERS_TABLE_NAME = os.getenv('DYNAMODB_USERS_TABLE_NAME', 'users')
+DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv('DYNAMODB_PLANTINGS_TABLE_NAME', 'plantings')
 
 # --- STATIC FILES (CSS, JavaScript, Images) ---
 if IS_PRODUCTION:

@@ -19,8 +19,9 @@ def get_dynamodb_client():
         region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
     )
 
-# Get DynamoDB table name from settings
-DYNAMODB_TABLE_NAME = getattr(settings, 'DYNAMODB_PLANTINGS_TABLE_NAME', 'user_plantings')
+# Get DynamoDB table names from settings
+DYNAMODB_USERS_TABLE_NAME = getattr(settings, 'DYNAMODB_USERS_TABLE_NAME', 'users')
+DYNAMODB_PLANTINGS_TABLE_NAME = getattr(settings, 'DYNAMODB_PLANTINGS_TABLE_NAME', 'plantings')
 
 
 def get_user_id_from_token(request):
@@ -56,85 +57,234 @@ def get_user_id_from_token(request):
         return None
 
 
+def get_user_data_from_token(request):
+    """
+    Extract user data from Cognito ID token.
+    Returns dict with user information (sub, email, username, etc.)
+    """
+    try:
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if not id_token:
+            return None
+        
+        from jose import jwt
+        payload = jwt.decode(id_token, options={"verify_signature": False})
+        return payload
+    except Exception as e:
+        logger.exception('Error extracting user data from token: %s', e)
+        return None
+
+
+def save_user_to_dynamodb(user_data):
+    """
+    Save user data to DynamoDB users table.
+    
+    Args:
+        user_data: Dict with user information (must include 'username' or 'sub' as key)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not user_data:
+        logger.error('Cannot save user: user_data is None')
+        return False
+    
+    try:
+        dynamodb = get_dynamodb_client()
+        
+        # Use username as the partition key (or sub/email as fallback)
+        username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub') or user_data.get('email')
+        if not username:
+            logger.error('Cannot save user: no username/sub/email found in user_data')
+            return False
+        
+        # Prepare user item
+        user_item = {
+            'username': {'S': username}
+        }
+        
+        # Add other user fields
+        if 'sub' in user_data:
+            user_item['user_id'] = {'S': str(user_data['sub'])}
+        if 'email' in user_data:
+            user_item['email'] = {'S': str(user_data['email'])}
+        if 'name' in user_data:
+            user_item['name'] = {'S': str(user_data['name'])}
+        if 'given_name' in user_data:
+            user_item['given_name'] = {'S': str(user_data['given_name'])}
+        if 'family_name' in user_data:
+            user_item['family_name'] = {'S': str(user_data['family_name'])}
+        
+        # Add login timestamp
+        user_item['last_login'] = {'S': datetime.utcnow().isoformat()}
+        user_item['created_at'] = {'S': datetime.utcnow().isoformat()}  # Will be updated if user exists
+        
+        try:
+            from botocore.exceptions import ClientError
+            
+            # Check if table exists
+            try:
+                dynamodb.describe_table(TableName=DYNAMODB_USERS_TABLE_NAME)
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == 'ResourceNotFoundException':
+                    logger.error('DynamoDB users table %s does not exist!', DYNAMODB_USERS_TABLE_NAME)
+                    return False
+            
+            # Use put_item with update expression to preserve created_at if user exists
+            # First check if user exists
+            try:
+                existing = dynamodb.get_item(
+                    TableName=DYNAMODB_USERS_TABLE_NAME,
+                    Key={'username': {'S': username}}
+                )
+                if 'Item' in existing:
+                    # User exists, preserve created_at
+                    if 'created_at' in existing['Item']:
+                        user_item['created_at'] = existing['Item']['created_at']
+            except Exception:
+                pass  # If check fails, proceed with new user
+            
+            # Save user
+            dynamodb.put_item(
+                TableName=DYNAMODB_USERS_TABLE_NAME,
+                Item=user_item
+            )
+            logger.info('✓ Saved user %s to DynamoDB users table', username)
+            return True
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'ResourceNotFoundException':
+                logger.error('DynamoDB users table %s does not exist!', DYNAMODB_USERS_TABLE_NAME)
+            else:
+                logger.exception('DynamoDB ClientError saving user: %s', e)
+            return False
+        except Exception as db_error:
+            logger.exception('DynamoDB put_item failed for user: %s', db_error)
+            return False
+    except Exception as e:
+        logger.exception('Error saving user to DynamoDB: %s', e)
+        return False
+
+
+def save_planting_to_dynamodb(user_id, planting):
+    """
+    Save a single planting to DynamoDB plantings table.
+    
+    Args:
+        user_id: User's unique identifier (from Cognito 'sub')
+        planting: Planting dictionary (must have 'planting_id' or will generate one)
+    
+    Returns:
+        planting_id if successful, None otherwise
+    """
+    if not user_id:
+        logger.error('Cannot save planting: user_id is None')
+        return None
+    
+    try:
+        dynamodb = get_dynamodb_client()
+        import uuid
+        
+        # Generate planting_id if not present
+        planting_id = planting.get('planting_id')
+        if not planting_id:
+            planting_id = str(uuid.uuid4())
+            planting['planting_id'] = planting_id
+        
+        # Convert date objects to ISO strings
+        planting_copy = planting.copy()
+        if isinstance(planting_copy.get('planting_date'), date):
+            planting_copy['planting_date'] = planting_copy['planting_date'].isoformat()
+        # Ensure plan tasks have string dates
+        for task in planting_copy.get('plan', []):
+            if 'due_date' in task and isinstance(task.get('due_date'), date):
+                task['due_date'] = task['due_date'].isoformat()
+        
+        # Prepare DynamoDB item
+        item = {
+            'planting_id': {'S': planting_id},
+            'user_id': {'S': user_id},
+            'crop_name': {'S': str(planting_copy.get('crop_name', ''))},
+            'planting_date': {'S': str(planting_copy.get('planting_date', ''))},
+            'batch_id': {'S': str(planting_copy.get('batch_id', ''))},
+            'notes': {'S': str(planting_copy.get('notes', ''))},
+            'plan': {'S': json.dumps(planting_copy.get('plan', []))},
+            'image_url': {'S': str(planting_copy.get('image_url', ''))},
+            'created_at': {'S': datetime.utcnow().isoformat()},
+            'updated_at': {'S': datetime.utcnow().isoformat()}
+        }
+        
+        try:
+            from botocore.exceptions import ClientError
+            
+            # Check if table exists
+            try:
+                dynamodb.describe_table(TableName=DYNAMODB_PLANTINGS_TABLE_NAME)
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == 'ResourceNotFoundException':
+                    logger.error('DynamoDB plantings table %s does not exist!', DYNAMODB_PLANTINGS_TABLE_NAME)
+                    return None
+            
+            # Save to DynamoDB
+            dynamodb.put_item(
+                TableName=DYNAMODB_PLANTINGS_TABLE_NAME,
+                Item=item
+            )
+            logger.info('✓ Saved planting %s for user %s to DynamoDB', planting_id, user_id)
+            return planting_id
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'ResourceNotFoundException':
+                logger.error('DynamoDB plantings table %s does not exist!', DYNAMODB_PLANTINGS_TABLE_NAME)
+            else:
+                logger.exception('DynamoDB ClientError saving planting: %s', e)
+            return None
+        except Exception as db_error:
+            logger.exception('DynamoDB put_item failed for planting: %s', db_error)
+            return None
+    except Exception as e:
+        logger.exception('Error saving planting to DynamoDB: %s', e)
+        return None
+
+
 def save_user_plantings(user_id, plantings):
     """
-    Save user plantings to DynamoDB.
+    Save multiple plantings to DynamoDB (saves each as separate item).
     
     Args:
         user_id: User's unique identifier (from Cognito 'sub')
         plantings: List of planting dictionaries
     
     Returns:
-        True if successful, False otherwise
+        True if all successful, False otherwise
     """
     if not user_id:
         logger.error('Cannot save plantings: user_id is None')
         return False
     
-    try:
-        dynamodb = get_dynamodb_client()
-        
-        # Convert date objects to ISO strings for JSON serialization
-        plantings_json = []
-        for planting in plantings:
-            planting_copy = planting.copy()
-            # Ensure planting_date is a string
-            if isinstance(planting_copy.get('planting_date'), date):
-                planting_copy['planting_date'] = planting_copy['planting_date'].isoformat()
-            # Ensure plan tasks have string dates
-            for task in planting_copy.get('plan', []):
-                if 'due_date' in task and isinstance(task.get('due_date'), date):
-                    task['due_date'] = task['due_date'].isoformat()
-            plantings_json.append(planting_copy)
-        
-        # Save to DynamoDB
-        try:
-            from botocore.exceptions import ClientError
-            
-            # First check if table exists
-            try:
-                dynamodb.describe_table(TableName=DYNAMODB_TABLE_NAME)
-            except ClientError as e:
-                error_code = e.response.get('Error', {}).get('Code', '')
-                if error_code == 'ResourceNotFoundException':
-                    logger.error('DynamoDB table %s does not exist!', DYNAMODB_TABLE_NAME)
-                    logger.error('Please run: python scripts/create_dynamodb_table.py')
-                    return False
-                else:
-                    logger.warning('Could not check if table exists: %s', e)
-            except Exception as describe_error:
-                logger.warning('Could not check if table exists: %s', describe_error)
-            
-            # Save to DynamoDB
-            dynamodb.put_item(
-                TableName=DYNAMODB_TABLE_NAME,
-                Item={
-                    'user_id': {'S': user_id},  # Partition key
-                    'plantings': {'S': json.dumps(plantings_json)},  # Store as JSON string
-                    'updated_at': {'S': datetime.utcnow().isoformat()}
-                }
-            )
-            logger.info('✓ Saved %d plantings for user %s to DynamoDB table %s', len(plantings), user_id, DYNAMODB_TABLE_NAME)
-            return True
-        except ClientError as e:
-            error_code = e.response.get('Error', {}).get('Code', '')
-            if error_code == 'ResourceNotFoundException':
-                logger.error('DynamoDB table %s does not exist!', DYNAMODB_TABLE_NAME)
-                logger.error('Please run: python scripts/create_dynamodb_table.py')
-            else:
-                logger.exception('DynamoDB ClientError for user %s: %s', user_id, e)
-            return False
-        except Exception as db_error:
-            logger.exception('DynamoDB put_item failed for user %s: %s', user_id, db_error)
-            return False
-    except Exception as e:
-        logger.exception('Error saving plantings to DynamoDB: %s', e)
-        return False
+    if not plantings:
+        logger.warning('No plantings to save for user %s', user_id)
+        return True
+    
+    success_count = 0
+    for planting in plantings:
+        planting_id = save_planting_to_dynamodb(user_id, planting)
+        if planting_id:
+            success_count += 1
+    
+    if success_count == len(plantings):
+        logger.info('✓ Saved all %d plantings for user %s to DynamoDB', len(plantings), user_id)
+        return True
+    else:
+        logger.warning('⚠ Saved %d/%d plantings for user %s to DynamoDB', success_count, len(plantings), user_id)
+        return success_count > 0
 
 
 def load_user_plantings(user_id):
     """
-    Load user plantings from DynamoDB.
+    Load all plantings for a user from DynamoDB plantings table.
     
     Args:
         user_id: User's unique identifier (from Cognito 'sub')
@@ -153,42 +303,111 @@ def load_user_plantings(user_id):
         try:
             from botocore.exceptions import ClientError
             try:
-                dynamodb.describe_table(TableName=DYNAMODB_TABLE_NAME)
+                dynamodb.describe_table(TableName=DYNAMODB_PLANTINGS_TABLE_NAME)
             except ClientError as e:
                 error_code = e.response.get('Error', {}).get('Code', '')
                 if error_code == 'ResourceNotFoundException':
-                    logger.warning('DynamoDB table %s does not exist - returning empty list', DYNAMODB_TABLE_NAME)
+                    logger.warning('DynamoDB plantings table %s does not exist - returning empty list', DYNAMODB_PLANTINGS_TABLE_NAME)
                 else:
                     logger.warning('Error checking DynamoDB table: %s', e)
                 return []
         except Exception as e:
-            logger.warning('DynamoDB table %s may not exist: %s', DYNAMODB_TABLE_NAME, e)
+            logger.warning('DynamoDB plantings table %s may not exist: %s', DYNAMODB_PLANTINGS_TABLE_NAME, e)
             return []
         
-        response = dynamodb.get_item(
-            TableName=DYNAMODB_TABLE_NAME,
-            Key={
-                'user_id': {'S': user_id}
-            }
-        )
-        
-        if 'Item' in response:
-            plantings_json = response['Item'].get('plantings', {}).get('S', '[]')
-            plantings = json.loads(plantings_json)
-            logger.info('✓ Loaded %d plantings for user %s from DynamoDB table %s', len(plantings), user_id, DYNAMODB_TABLE_NAME)
+        # Query all plantings for this user
+        # Note: This requires a GSI (Global Secondary Index) on user_id, or we scan (less efficient)
+        # For now, we'll use scan with filter (works but not optimal for large datasets)
+        plantings = []
+        try:
+            response = dynamodb.scan(
+                TableName=DYNAMODB_PLANTINGS_TABLE_NAME,
+                FilterExpression='user_id = :user_id',
+                ExpressionAttributeValues={
+                    ':user_id': {'S': user_id}
+                }
+            )
+            
+            for item in response.get('Items', []):
+                planting = {
+                    'planting_id': item.get('planting_id', {}).get('S', ''),
+                    'crop_name': item.get('crop_name', {}).get('S', ''),
+                    'planting_date': item.get('planting_date', {}).get('S', ''),
+                    'batch_id': item.get('batch_id', {}).get('S', ''),
+                    'notes': item.get('notes', {}).get('S', ''),
+                    'image_url': item.get('image_url', {}).get('S', ''),
+                }
+                # Parse plan JSON
+                plan_json = item.get('plan', {}).get('S', '[]')
+                try:
+                    planting['plan'] = json.loads(plan_json)
+                except:
+                    planting['plan'] = []
+                plantings.append(planting)
+            
+            logger.info('✓ Loaded %d plantings for user %s from DynamoDB plantings table', len(plantings), user_id)
             return plantings
-        else:
-            logger.info('No plantings found for user %s in DynamoDB table %s', user_id, DYNAMODB_TABLE_NAME)
+        except Exception as scan_error:
+            logger.exception('Error scanning plantings table: %s', scan_error)
             return []
     except Exception as e:
         logger.exception('Error loading plantings from DynamoDB: %s', e)
         return []
 
 
+def delete_planting_from_dynamodb(planting_id):
+    """
+    Delete a specific planting by planting_id.
+    
+    Args:
+        planting_id: The planting_id to delete
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not planting_id:
+        logger.error('Cannot delete planting: planting_id is None')
+        return False
+    
+    try:
+        dynamodb = get_dynamodb_client()
+        
+        try:
+            from botocore.exceptions import ClientError
+            
+            # Check if table exists
+            try:
+                dynamodb.describe_table(TableName=DYNAMODB_PLANTINGS_TABLE_NAME)
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == 'ResourceNotFoundException':
+                    logger.error('DynamoDB plantings table %s does not exist!', DYNAMODB_PLANTINGS_TABLE_NAME)
+                    return False
+            
+            # Delete from DynamoDB
+            dynamodb.delete_item(
+                TableName=DYNAMODB_PLANTINGS_TABLE_NAME,
+                Key={
+                    'planting_id': {'S': planting_id}
+                }
+            )
+            logger.info('✓ Deleted planting %s from DynamoDB', planting_id)
+            return True
+        except ClientError as e:
+            logger.exception('DynamoDB ClientError deleting planting: %s', e)
+            return False
+        except Exception as db_error:
+            logger.exception('DynamoDB delete_item failed: %s', db_error)
+            return False
+    except Exception as e:
+        logger.exception('Error deleting planting from DynamoDB: %s', e)
+        return False
+
+
 def delete_user_planting(user_id, planting_index):
     """
     Delete a specific planting by index.
-    Note: This loads all plantings, removes the one at index, and saves back.
+    Loads all plantings, finds the one at index, and deletes it by planting_id.
     
     Args:
         user_id: User's unique identifier
@@ -199,8 +418,12 @@ def delete_user_planting(user_id, planting_index):
     """
     plantings = load_user_plantings(user_id)
     if planting_index < len(plantings):
-        del plantings[planting_index]
-        return save_user_plantings(user_id, plantings)
+        planting = plantings[planting_index]
+        planting_id = planting.get('planting_id')
+        if planting_id:
+            return delete_planting_from_dynamodb(planting_id)
+        else:
+            logger.error('Planting at index %d has no planting_id', planting_index)
     return False
 
 
