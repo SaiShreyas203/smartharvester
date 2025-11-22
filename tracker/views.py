@@ -284,11 +284,26 @@ def edit_planting_view(request, planting_id):
             if isinstance(planting_date, date):
                 planting_to_edit['planting_date_str'] = planting_date.isoformat()
             elif isinstance(planting_date, str):
-                planting_to_edit['planting_date_str'] = planting_date
+                # If it's already a string, try to parse it first to validate
+                try:
+                    # Try to parse as ISO date to ensure it's valid
+                    date.fromisoformat(planting_date)
+                    planting_to_edit['planting_date_str'] = planting_date
+                except (ValueError, TypeError):
+                    planting_to_edit['planting_date_str'] = str(planting_date)
             else:
                 planting_to_edit['planting_date_str'] = str(planting_date)
         else:
             planting_to_edit['planting_date_str'] = ''
+        
+        # Ensure all fields have default values for the form
+        planting_to_edit.setdefault('crop_name', '')
+        planting_to_edit.setdefault('batch_id', '')
+        planting_to_edit.setdefault('notes', '')
+        planting_to_edit.setdefault('image_url', '')
+        
+        logger.info('Loading planting for edit: id=%d, crop=%s, date=%s', 
+                   planting_id, planting_to_edit.get('crop_name'), planting_to_edit.get('planting_date_str'))
     except (IndexError, KeyError) as e:
         logger.exception('Error getting planting to edit: %s', e)
         return redirect('index')
@@ -330,12 +345,13 @@ def update_planting(request, planting_id):
         existing_planting = user_plantings[planting_id]
         actual_planting_id = existing_planting.get('planting_id')
 
-        crop_name = request.POST.get('crop_name')
-        planting_date_str = request.POST.get('planting_date')
-        batch_id = request.POST.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
-        notes = request.POST.get('notes', '')
+        # Get form values, but preserve old values if not provided or changed
+        crop_name = request.POST.get('crop_name') or existing_planting.get('crop_name', '')
+        planting_date_str = request.POST.get('planting_date') or existing_planting.get('planting_date', '')
+        batch_id = request.POST.get('batch_id') or existing_planting.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
+        notes = request.POST.get('notes', '') or existing_planting.get('notes', '')
 
-        # Handle image upload
+        # Handle image upload - only update if new image is uploaded
         image_url = existing_planting.get('image_url', '')
         if 'image' in request.FILES and request.FILES['image'].name:
             # Delete old image if it exists
@@ -346,14 +362,27 @@ def update_planting(request, planting_id):
             # Upload new image (if user_id exists)
             if user_id:
                 image_url = upload_planting_image(request.FILES['image'], user_id)
+                logger.info('Uploaded new image for planting: %s', image_url)
             else:
                 logger.warning('Cannot upload image: user not authenticated')
+        else:
+            # No new image uploaded - preserve existing image URL
+            logger.info('No new image uploaded, preserving existing image: %s', image_url)
 
         if not crop_name or not planting_date_str:
+            logger.error('Missing required fields: crop_name=%s, planting_date_str=%s', crop_name, planting_date_str)
             return redirect('index')
 
-        planting_date = date.fromisoformat(planting_date_str)
+        # Parse planting date
+        if isinstance(planting_date_str, str):
+            planting_date = date.fromisoformat(planting_date_str)
+        elif isinstance(planting_date_str, date):
+            planting_date = planting_date_str
+        else:
+            logger.error('Invalid planting_date format: %s', planting_date_str)
+            return redirect('index')
 
+        # Recalculate plan based on updated crop and date
         plant_data = load_plant_data()
         calculate = _get_calculate_plan()
         calculated_plan = calculate(crop_name, planting_date, plant_data)
@@ -363,14 +392,14 @@ def update_planting(request, planting_id):
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        # Update planting
+        # Update planting with all fields (preserving existing values where applicable)
         updated_planting = {
             'crop_name': crop_name,
-            'planting_date': planting_date.isoformat(),
+            'planting_date': planting_date.isoformat() if isinstance(planting_date, date) else str(planting_date),
             'batch_id': batch_id,
             'notes': notes,
             'plan': calculated_plan,
-            'image_url': image_url
+            'image_url': image_url  # Will be existing URL if no new image uploaded
         }
         
         # Preserve planting_id if it exists

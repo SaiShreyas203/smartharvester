@@ -81,7 +81,7 @@
             </select>
 
             <label for="planting-date">Planting Date:</label>
-            <input type="date" id="planting-date" name="planting_date" value="{% if is_editing %}{{ planting.planting_date|date:'Y-m-d' }}{% endif %}" required>
+            <input type="date" id="planting-date" name="planting_date" value="{% if is_editing %}{{ planting.planting_date_str|default:planting.planting_date|date:'Y-m-d' }}{% endif %}" required>
 
             <label for="batch-id">Batch ID (Optional):</label>
             <input type="text" id="batch-id" name="batch_id" value="{% if is_editing %}{{ planting.batch_id }}{% endif %}">
