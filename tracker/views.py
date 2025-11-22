@@ -58,14 +58,28 @@ def load_plant_data():
 
 def index(request):
     # Load plantings from DynamoDB using user ID from Cognito token
-    from .dynamodb_helper import load_user_plantings, get_user_id_from_token
+    from .dynamodb_helper import load_user_plantings, get_user_id_from_token, migrate_session_to_dynamodb
     
     user_id = get_user_id_from_token(request)
     if user_id:
+        logger.info('Loading plantings from DynamoDB for user_id: %s', user_id)
+        # Load from DynamoDB
         user_plantings = load_user_plantings(user_id)
+        logger.info('Loaded %d plantings from DynamoDB for user %s', len(user_plantings), user_id)
+        
+        # Migrate any existing session data to DynamoDB (one-time migration)
+        session_plantings = request.session.get('user_plantings', [])
+        if session_plantings and not user_plantings:
+            logger.info('Migrating %d plantings from session to DynamoDB for user %s', len(session_plantings), user_id)
+            migrate_session_to_dynamodb(user_id, session_plantings)
+            user_plantings = load_user_plantings(user_id)
+            # Clear session after migration
+            request.session.pop('user_plantings', None)
+            logger.info('Migration complete, now have %d plantings in DynamoDB', len(user_plantings))
     else:
-        # Fallback to session for backward compatibility or unauthenticated users
-        user_plantings = request.session.get('user_plantings', [])
+        # No user ID - user not logged in, return empty list
+        logger.warning('No user_id found - user may not be logged in, returning empty plantings list')
+        user_plantings = []
     
     today = date.today()
     
@@ -116,21 +130,18 @@ def save_planting(request):
         batch_id = request.POST.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
         notes = request.POST.get('notes', '')
 
-        # Image upload logic:
+        # Get user_id first for image upload
+        from .dynamodb_helper import get_user_id_from_token
+        user_id = get_user_id_from_token(request)
+        
+        # Image upload logic - organized by user_id in S3
         image_url = ""
         if 'image' in request.FILES and request.FILES['image'].name:
-            image_file = request.FILES['image']
-            s3 = boto3.client(
-                's3',
-                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
-            )
-            extension = image_file.name.split('.')[-1]
-            key = f"media/planting_images/{uuid.uuid4()}.{extension}"
-            # NOTE: No ExtraArgs, no ACL set!
-            s3.upload_fileobj(image_file, settings.AWS_STORAGE_BUCKET_NAME, key)
-            image_url = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{key}"
+            from .s3_helper import upload_planting_image
+            if user_id:
+                image_url = upload_planting_image(request.FILES['image'], user_id)
+            else:
+                logger.warning('Cannot upload image: user not authenticated')
 
         if not crop_name or not planting_date_str:
             return redirect('index')
@@ -146,36 +157,37 @@ def save_planting(request):
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        # Save to DynamoDB
-        from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        # Save to DynamoDB - REQUIRED for logged-in users
+        from .dynamodb_helper import load_user_plantings, save_user_plantings
         
-        user_id = get_user_id_from_token(request)
-        if user_id:
-            # Load existing plantings from DynamoDB
-            user_plantings = load_user_plantings(user_id)
-            # Add new planting
-            user_plantings.append({
-                'crop_name': crop_name,
-                'planting_date': planting_date.isoformat(),
-                'batch_id': batch_id,
-                'notes': notes,
-                'plan': calculated_plan,
-                'image_url': image_url
-            })
-            # Save back to DynamoDB
-            save_user_plantings(user_id, user_plantings)
+        # user_id already retrieved above for image upload
+        if not user_id:
+            logger.error('Cannot save planting: user not authenticated (no user_id from token)')
+            return redirect('index')
+        
+        logger.info('Saving planting for user_id: %s', user_id)
+        
+        # Load existing plantings from DynamoDB
+        user_plantings = load_user_plantings(user_id)
+        logger.info('Loaded %d existing plantings from DynamoDB for user %s', len(user_plantings), user_id)
+        
+        # Add new planting
+        new_planting = {
+            'crop_name': crop_name,
+            'planting_date': planting_date.isoformat(),
+            'batch_id': batch_id,
+            'notes': notes,
+            'plan': calculated_plan,
+            'image_url': image_url
+        }
+        user_plantings.append(new_planting)
+        logger.info('Added new planting, total now: %d', len(user_plantings))
+        
+        # Save back to DynamoDB
+        if save_user_plantings(user_id, user_plantings):
+            logger.info('✓ Successfully saved %d plantings to DynamoDB for user %s', len(user_plantings), user_id)
         else:
-            # Fallback to session for backward compatibility
-            user_plantings = request.session.get('user_plantings', [])
-            user_plantings.append({
-                'crop_name': crop_name,
-                'planting_date': planting_date.isoformat(),
-                'batch_id': batch_id,
-                'notes': notes,
-                'plan': calculated_plan,
-                'image_url': image_url
-            })
-            request.session['user_plantings'] = user_plantings
+            logger.error('✗ FAILED to save planting to DynamoDB for user %s', user_id)
 
     return redirect('index')
 
@@ -183,10 +195,11 @@ def edit_planting_view(request, planting_id):
     from .dynamodb_helper import load_user_plantings, get_user_id_from_token
     
     user_id = get_user_id_from_token(request)
-    if user_id:
-        user_plantings = load_user_plantings(user_id)
-    else:
-        user_plantings = request.session.get('user_plantings', [])
+    if not user_id:
+        logger.error('Cannot edit planting: user not authenticated')
+        return redirect('index')
+    
+    user_plantings = load_user_plantings(user_id)
     
     try:
         planting_to_edit = user_plantings[planting_id].copy()
@@ -209,10 +222,11 @@ def update_planting(request, planting_id):
         from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
         
         user_id = get_user_id_from_token(request)
-        if user_id:
-            user_plantings = load_user_plantings(user_id)
-        else:
-            user_plantings = request.session.get('user_plantings', [])
+        if not user_id:
+            logger.error('Cannot update planting: user not authenticated')
+            return redirect('index')
+        
+        user_plantings = load_user_plantings(user_id)
         
         if planting_id >= len(user_plantings):
             return redirect('index')
@@ -224,18 +238,16 @@ def update_planting(request, planting_id):
 
         image_url = user_plantings[planting_id].get('image_url', '')
         if 'image' in request.FILES and request.FILES['image'].name:
-            # Upload new image to S3:
-            image_file = request.FILES['image']
-            s3 = boto3.client(
-                's3',
-                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
-            )
-            extension = image_file.name.split('.')[-1]
-            key = f"media/planting_images/{uuid.uuid4()}.{extension}"
-            s3.upload_fileobj(image_file, settings.AWS_STORAGE_BUCKET_NAME, key)
-            image_url = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{key}"
+            # Upload new image to S3 organized by user_id
+            from .s3_helper import upload_planting_image, delete_image_from_s3
+            
+            # Delete old image if it exists
+            old_image_url = image_url
+            if old_image_url:
+                delete_image_from_s3(old_image_url)
+            
+            # Upload new image
+            image_url = upload_planting_image(request.FILES['image'], user_id)
 
         if not crop_name or not planting_date_str:
             return redirect('index')
@@ -260,33 +272,44 @@ def update_planting(request, planting_id):
             'image_url': image_url
         }
         
-        # Save to DynamoDB or session
-        if user_id:
-            save_user_plantings(user_id, user_plantings)
-        else:
-            request.session['user_plantings'] = user_plantings
+        # Save to DynamoDB
+        if not save_user_plantings(user_id, user_plantings):
+            logger.error('Failed to update planting in DynamoDB for user %s', user_id)
 
     return redirect('index')
 
 def delete_planting(request, planting_id):
     if request.method == 'POST':
         from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        from .s3_helper import delete_image_from_s3
         
         user_id = get_user_id_from_token(request)
-        if user_id:
-            user_plantings = load_user_plantings(user_id)
-        else:
-            user_plantings = request.session.get('user_plantings', [])
+        if not user_id:
+            logger.error('Cannot delete planting: user not authenticated')
+            return redirect('index')
+        
+        user_plantings = load_user_plantings(user_id)
         
         try:
+            # Get image URL before deleting planting
+            planting_to_delete = user_plantings[planting_id]
+            image_url = planting_to_delete.get('image_url', '')
+            
+            # Delete image from S3 if it exists
+            if image_url:
+                delete_image_from_s3(image_url)
+                logger.info('Deleted image from S3: %s', image_url)
+            
+            # Delete planting from list
             del user_plantings[planting_id]
-            # Save to DynamoDB or session
-            if user_id:
-                save_user_plantings(user_id, user_plantings)
+            
+            # Save to DynamoDB
+            if save_user_plantings(user_id, user_plantings):
+                logger.info('✓ Successfully deleted planting %d from DynamoDB for user %s', planting_id, user_id)
             else:
-                request.session['user_plantings'] = user_plantings
+                logger.error('✗ Failed to delete planting from DynamoDB for user %s', user_id)
         except IndexError:
-            pass
+            logger.warning('Planting index %d out of range for user %s', planting_id, user_id)
     return redirect('index')
 
 

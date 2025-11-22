@@ -31,6 +31,7 @@ def get_user_id_from_token(request):
     try:
         id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
         if not id_token:
+            logger.debug('No ID token found in session')
             return None
         
         # Decode token without verification (we just need the user ID)
@@ -43,9 +44,15 @@ def get_user_id_from_token(request):
         if not user_id:
             # Fallback to email if sub is not available
             user_id = payload.get('email')
+        
+        if user_id:
+            logger.debug('Extracted user_id: %s from token', user_id)
+        else:
+            logger.warning('No user_id found in token payload. Available keys: %s', list(payload.keys()))
+        
         return user_id
     except Exception as e:
-        logger.error('Error extracting user ID from token: %s', e)
+        logger.exception('Error extracting user ID from token: %s', e)
         return None
 
 
@@ -81,16 +88,27 @@ def save_user_plantings(user_id, plantings):
             plantings_json.append(planting_copy)
         
         # Save to DynamoDB
-        dynamodb.put_item(
-            TableName=DYNAMODB_TABLE_NAME,
-            Item={
-                'user_id': {'S': user_id},  # Partition key
-                'plantings': {'S': json.dumps(plantings_json)},  # Store as JSON string
-                'updated_at': {'S': datetime.utcnow().isoformat()}
-            }
-        )
-        logger.info('Saved %d plantings for user %s to DynamoDB', len(plantings), user_id)
-        return True
+        try:
+            dynamodb.put_item(
+                TableName=DYNAMODB_TABLE_NAME,
+                Item={
+                    'user_id': {'S': user_id},  # Partition key
+                    'plantings': {'S': json.dumps(plantings_json)},  # Store as JSON string
+                    'updated_at': {'S': datetime.utcnow().isoformat()}
+                }
+            )
+            logger.info('✓ Saved %d plantings for user %s to DynamoDB table %s', len(plantings), user_id, DYNAMODB_TABLE_NAME)
+            return True
+        except Exception as db_error:
+            logger.exception('DynamoDB put_item failed for user %s: %s', user_id, db_error)
+            # Check if table exists
+            try:
+                dynamodb.describe_table(TableName=DYNAMODB_TABLE_NAME)
+                logger.error('Table %s exists but put_item failed', DYNAMODB_TABLE_NAME)
+            except Exception as describe_error:
+                logger.error('Table %s does not exist or cannot be accessed. Error: %s', DYNAMODB_TABLE_NAME, describe_error)
+                logger.error('Please run: python scripts/create_dynamodb_table.py')
+            return False
     except Exception as e:
         logger.exception('Error saving plantings to DynamoDB: %s', e)
         return False
@@ -123,10 +141,10 @@ def load_user_plantings(user_id):
         if 'Item' in response:
             plantings_json = response['Item'].get('plantings', {}).get('S', '[]')
             plantings = json.loads(plantings_json)
-            logger.info('Loaded %d plantings for user %s from DynamoDB', len(plantings), user_id)
+            logger.info('✓ Loaded %d plantings for user %s from DynamoDB table %s', len(plantings), user_id, DYNAMODB_TABLE_NAME)
             return plantings
         else:
-            logger.info('No plantings found for user %s in DynamoDB', user_id)
+            logger.info('No plantings found for user %s in DynamoDB table %s', user_id, DYNAMODB_TABLE_NAME)
             return []
     except Exception as e:
         logger.exception('Error loading plantings from DynamoDB: %s', e)
@@ -150,4 +168,33 @@ def delete_user_planting(user_id, planting_index):
         del plantings[planting_index]
         return save_user_plantings(user_id, plantings)
     return False
+
+
+def migrate_session_to_dynamodb(user_id, session_plantings):
+    """
+    Migrate plantings from session to DynamoDB (one-time migration).
+    
+    Args:
+        user_id: User's unique identifier
+        session_plantings: List of plantings from session
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not user_id or not session_plantings:
+        return False
+    
+    try:
+        # Check if user already has data in DynamoDB
+        existing = load_user_plantings(user_id)
+        if existing:
+            logger.info('User %s already has data in DynamoDB, skipping migration', user_id)
+            return True
+        
+        # Save session data to DynamoDB
+        logger.info('Migrating %d plantings from session to DynamoDB for user %s', len(session_plantings), user_id)
+        return save_user_plantings(user_id, session_plantings)
+    except Exception as e:
+        logger.exception('Error migrating session data to DynamoDB: %s', e)
+        return False
 
