@@ -127,7 +127,7 @@
                 Add New Planting
             </a>
 
-            <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;">🔔</button>
+            <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;" title="Toggle notifications" onclick="toggleNotifications()">{% if notifications_enabled %}🔔{% else %}🔕{% endif %}</button>
 
             <div id="profile-icon" style="cursor:pointer; width:40px; height:40px; border-radius:50%; background:#6fbf6f; display:flex; align-items:center; justify-content:center; font-weight:bold;">
                 {{ user.username|slice:":2"|upper }}
@@ -503,11 +503,48 @@ if (dashboardBtn) {
     });
 }
 
+// Notification toggle function
+let notificationsEnabled = {{ notifications_enabled|yesno:"true,false" }};
+
+async function toggleNotifications() {
+    const newState = !notificationsEnabled;
+    
+    try {
+        const response = await fetch('{% url "toggle_notifications" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ enabled: newState })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            notificationsEnabled = newState;
+            const btn = document.getElementById('notification-btn');
+            if (btn) {
+                btn.textContent = newState ? '🔔' : '🔕';
+                btn.title = newState ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
+            }
+            
+            // Show success message
+            alert(newState ? '✓ Notifications enabled! You will receive harvest reminders via email.' : 'Notifications disabled. You will no longer receive reminders.');
+        } else {
+            alert('Error: ' + (data.error || 'Failed to update notification preference'));
+        }
+    } catch (error) {
+        console.error('Error toggling notifications:', error);
+        alert('Error: Failed to update notification preference. Please try again.');
+    }
+}
+
 const notificationBtn = document.getElementById('notification-btn');
 if (notificationBtn) {
-    notificationBtn.addEventListener('click', () => {
-        document.getElementById('notification-modal').style.display = 'flex';
-    });
+    notificationBtn.addEventListener('click', toggleNotifications);
+    // Set initial tooltip
+    notificationBtn.title = notificationsEnabled ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
 }
 
 function closeDashboard() {

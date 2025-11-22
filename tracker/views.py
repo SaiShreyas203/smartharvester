@@ -140,7 +140,33 @@ def index(request):
             continue
             
     logger.info('Processed plantings: ongoing=%d, upcoming=%d, past=%d', len(ongoing), len(upcoming), len(past))
-    context = {'ongoing': ongoing, 'upcoming': upcoming, 'past': past}
+    
+    # Get user info and notification preference
+    notifications_enabled = True
+    user_email = None
+    username = None
+    
+    try:
+        from .dynamodb_helper import get_user_data_from_token, get_user_notification_preference
+        user_data = get_user_data_from_token(request)
+        if user_data:
+            user_email = user_data.get('email')
+            username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub')
+            
+            if username:
+                notifications_enabled = get_user_notification_preference(username)
+                logger.info('Notification preference for %s: %s', username, notifications_enabled)
+    except Exception as e:
+        logger.exception('Error getting user notification preference: %s', e)
+    
+    context = {
+        'ongoing': ongoing,
+        'upcoming': upcoming,
+        'past': past,
+        'notifications_enabled': notifications_enabled,
+        'user_email': user_email,
+        'username': username
+    }
     return render(request, 'tracker/index.html', context)
 
 def add_planting_view(request):
@@ -758,3 +784,59 @@ def login_view(request):
     
     # For GET requests, show login page with Cognito login option
     return render(request, 'registration/login.html')
+
+
+def toggle_notifications(request):
+    """
+    API endpoint to toggle user's notification preferences.
+    
+    POST /api/toggle-notifications/
+    Body: {"enabled": true/false}
+    """
+    from .dynamodb_helper import get_user_data_from_token, update_user_notification_preference
+    from .sns_helper import subscribe_email_to_topic
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method allowed'}, status=405)
+    
+    try:
+        user_data = get_user_data_from_token(request)
+        if not user_data:
+            return JsonResponse({'error': 'User not authenticated'}, status=401)
+        
+        username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub')
+        email = user_data.get('email')
+        
+        if not username:
+            return JsonResponse({'error': 'Username not found'}, status=400)
+        
+        # Get enabled status from request
+        import json
+        try:
+            body = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            body = request.POST
+        
+        enabled = body.get('enabled', True)
+        if isinstance(enabled, str):
+            enabled = enabled.lower() == 'true'
+        
+        # Update notification preference in DynamoDB
+        success = update_user_notification_preference(username, enabled)
+        if not success:
+            return JsonResponse({'error': 'Failed to update notification preference'}, status=500)
+        
+        # If enabling notifications and email exists, subscribe to SNS topic
+        if enabled and email:
+            subscribe_email_to_topic(email)
+            logger.info('✓ Subscribed %s to SNS topic for notifications', email)
+        
+        return JsonResponse({
+            'success': True,
+            'notifications_enabled': enabled,
+            'message': 'Notification preferences updated successfully'
+        })
+        
+    except Exception as e:
+        logger.exception('Error toggling notifications: %s', e)
+        return JsonResponse({'error': str(e)}, status=500)

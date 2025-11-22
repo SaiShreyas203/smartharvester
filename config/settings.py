@@ -119,6 +119,10 @@ AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
 DYNAMODB_USERS_TABLE_NAME = os.getenv('DYNAMODB_USERS_TABLE_NAME', 'users')
 DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv('DYNAMODB_PLANTINGS_TABLE_NAME', 'plantings')
 
+# -------- AWS SNS CONFIGURATION --------
+# SNS topic for notifications
+SNS_TOPIC_ARN = os.getenv('SNS_TOPIC_ARN', 'arn:aws:sns:us-east-1:518029233624:harvest-notifications')
+
 # --- STATIC FILES (CSS, JavaScript, Images) ---
 if IS_PRODUCTION:
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}

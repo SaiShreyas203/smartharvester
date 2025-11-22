@@ -181,6 +181,24 @@ def save_user_to_dynamodb(user_data):
                 logger.warning('Could not check if user exists: %s', check_error)
                 # Continue anyway
             
+            # Add default notification preference if not present
+            if 'notifications_enabled' not in user_item:
+                # Check if user exists first
+                try:
+                    existing = dynamodb.get_item(
+                        TableName=DYNAMODB_USERS_TABLE_NAME,
+                        Key={'username': {'S': str(username)}}
+                    )
+                    if 'Item' in existing and 'notifications_enabled' in existing['Item']:
+                        # Preserve existing notification preference
+                        user_item['notifications_enabled'] = existing['Item']['notifications_enabled']
+                    else:
+                        # Default to enabled for new users
+                        user_item['notifications_enabled'] = {'BOOL': True}
+                except Exception:
+                    # Default to enabled if we can't check
+                    user_item['notifications_enabled'] = {'BOOL': True}
+            
             # Save user
             dynamodb.put_item(
                 TableName=DYNAMODB_USERS_TABLE_NAME,
