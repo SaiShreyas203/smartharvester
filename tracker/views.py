@@ -234,7 +234,14 @@ def delete_planting(request, planting_id):
 def cognito_login(request):
     """Redirect user to Cognito Hosted UI login."""
     from .cognito import build_authorize_url
-    url = build_authorize_url()
+    # Build the actual redirect URI from the request to ensure it matches exactly
+    callback_url = request.build_absolute_uri('/auth/callback/')
+    # Remove query parameters if any
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(callback_url)
+    callback_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+    url = build_authorize_url(redirect_uri=callback_url)
+    logger.info('Cognito login: Redirecting to Cognito with redirect_uri: %s', callback_url)
     return redirect(url)
 
 
@@ -266,13 +273,26 @@ def cognito_callback(request):
         logger.warning('Cognito callback: No code provided and no error - unexpected response')
         return HttpResponse("No code provided. Please try logging in again.", status=400)
 
+    # Get the actual redirect URI that was used (from the request)
+    # This must match exactly what was sent in the authorization request
+    actual_redirect_uri = request.build_absolute_uri(request.path)
+    # Remove query parameters from the redirect URI
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(actual_redirect_uri)
+    actual_redirect_uri = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+    
+    # Use the actual redirect URI from the request, or fall back to settings
+    redirect_uri = actual_redirect_uri or settings.COGNITO_REDIRECT_URI
+    
+    logger.info('Cognito callback: Using redirect_uri: %s (from settings: %s)', redirect_uri, settings.COGNITO_REDIRECT_URI)
+    
     token_url = f"https://{settings.COGNITO_DOMAIN}/oauth2/token"
 
     data = {
         'grant_type': 'authorization_code',
         'client_id': settings.COGNITO_CLIENT_ID,
         'code': code,
-        'redirect_uri': settings.COGNITO_REDIRECT_URI
+        'redirect_uri': redirect_uri  # Use the actual redirect URI
     }
 
     headers = {
@@ -286,7 +306,28 @@ def cognito_callback(request):
         return HttpResponse(f"Error fetching tokens: {str(e)}", status=500)
     
     if response.status_code != 200:
-        return HttpResponse(f"Error fetching tokens: {response.text}", status=response.status_code)
+        error_text = response.text
+        logger.error('Cognito token exchange failed: %s - %s', response.status_code, error_text)
+        logger.error('Token exchange details - redirect_uri: %s, client_id: %s', redirect_uri, settings.COGNITO_CLIENT_ID)
+        
+        # Handle invalid_grant error specifically
+        try:
+            error_data = response.json()
+            if error_data.get('error') == 'invalid_grant':
+                error_msg = (
+                    "The authorization code is invalid or has expired. This usually happens if:\n"
+                    "1. The code was already used (codes are single-use)\n"
+                    "2. The code expired (try logging in again)\n"
+                    "3. The redirect_uri doesn't match exactly between authorization and token exchange\n"
+                    f"Current redirect_uri: {redirect_uri}\n"
+                    f"Expected redirect_uri in settings: {settings.COGNITO_REDIRECT_URI}\n"
+                    "Please try logging in again."
+                )
+                return HttpResponse(error_msg, status=400, content_type='text/plain')
+        except:
+            pass
+        
+        return HttpResponse(f"Error fetching tokens: {error_text}", status=response.status_code)
 
     tokens = response.json()
     # tokens contain: access_token, id_token, refresh_token
