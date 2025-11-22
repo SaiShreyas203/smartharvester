@@ -3,61 +3,42 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 
+from . import dynamo
+
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+
 @receiver(post_save, sender=User)
 def sync_user_to_dynamo(sender, instance, created, **kwargs):
-    """Signal handler: Sync Django User to DynamoDB when created or updated."""
+    """
+    After a User is created/updated, write a corresponding item to the DynamoDB users table.
+    Non-blocking: log errors but do not raise so signup is not interrupted.
+    """
     try:
-        from tracker.dynamodb_helper import create_or_update_user
-        
-        # Use Django user ID as user_id for DynamoDB
-        user_id = str(instance.pk)
-        
         payload = {
-            "email": instance.email or "",
-            "first_name": instance.first_name or "",
-            "last_name": instance.last_name or "",
+            "email": instance.email,
+            "first_name": instance.first_name,
+            "last_name": instance.last_name,
             "username": instance.username,
         }
-        
-        # Add name if available
-        if instance.first_name or instance.last_name:
-            payload["name"] = f"{instance.first_name} {instance.last_name}".strip()
-        
-        logger.info("=" * 60)
-        logger.info("SIGNAL FIRED: Syncing user to DynamoDB")
-        logger.info("Username: %s", instance.username)
-        logger.info("User ID (pk): %s", instance.pk)
-        logger.info("Email: %s", instance.email)
-        logger.info("Created: %s", created)
-        logger.info("=" * 60)
-        
-        ok = create_or_update_user(user_id=user_id, payload=payload)
-        if not ok:
-            logger.error("✗✗✗ DynamoDB write returned False for user %s (pk=%s)", instance.username, instance.pk)
+        ok = dynamo.create_or_update_user(user_id=instance.pk, payload=payload)
+        if ok:
+            logger.info("Dynamo sync succeeded for user %s", instance.pk)
         else:
-            logger.info("✓✓✓ DynamoDB write succeeded for user %s (pk=%s)", instance.username, instance.pk)
+            logger.error("Dynamo sync returned False for user %s", instance.pk)
     except Exception as exc:
-        logger.exception("✗✗✗ FAILED to sync user %s to DynamoDB: %s", instance.pk, exc)
-        # Don't raise - signal handlers should not break the save operation
+        logger.exception("Exception syncing user %s to Dynamo: %s", instance.pk, exc)
+
 
 @receiver(post_delete, sender=User)
 def delete_user_from_dynamo(sender, instance, **kwargs):
-    """Signal handler: Delete Django User from DynamoDB when deleted."""
     try:
-        from tracker.dynamodb_helper import delete_user
-        
-        user_id = str(instance.pk)
-        logger.info("Signal: Deleting user %s (pk=%s) from DynamoDB", instance.username, instance.pk)
-        
-        ok = delete_user(user_id=user_id)
-        if not ok:
-            logger.error("✗ DynamoDB delete returned False for user %s (pk=%s)", instance.username, instance.pk)
+        ok = dynamo.delete_user(user_id=instance.pk)
+        if ok:
+            logger.info("Dynamo delete succeeded for user %s", instance.pk)
         else:
-            logger.info("✓ DynamoDB delete succeeded for user %s (pk=%s)", instance.username, instance.pk)
-    except Exception as exc:
-        logger.exception("✗ Failed to delete user %s from DynamoDB: %s", instance.pk, exc)
-        # Don't raise - signal handlers should not break the delete operation
+            logger.error("Dynamo delete returned False for user %s", instance.pk)
+    except Exception:
+        logger.exception("Exception deleting user %s from Dynamo", instance.pk)
