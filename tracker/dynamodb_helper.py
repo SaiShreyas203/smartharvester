@@ -1,28 +1,13 @@
-"""
-DynamoDB helper utilities used by tracker views.
-
-Includes:
-- load_user_plantings(user_id)
-- get_user_id_from_request(request)
-- get_user_id_from_token(token_or_request)
-- save_planting_to_dynamodb(planting_or_dict)
-
-This file does NOT import Django models at top-level to avoid circular imports.
-"""
+# tracker/dynamodb_helper.py
 from __future__ import annotations
-
-import os
-import json
-import logging
-import base64
+import os, json, base64, logging, uuid
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
-
 import boto3
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key, Attr
 
-# Optional PyJWT - used only for convenience if available
+# Optional PyJWT
 try:
     import jwt  # PyJWT
 except Exception:
@@ -32,23 +17,16 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-PLANTINGS_TABLE = os.getenv("DYNAMO_PLANTINGS_TABLE", "plantings")
 USERS_TABLE = os.getenv("DYNAMO_USERS_TABLE", "users")
-
+PLANTINGS_TABLE = os.getenv("DYNAMO_PLANTINGS_TABLE", "plantings")
 
 def _dynamo_resource():
     return boto3.resource("dynamodb", region_name=AWS_REGION)
 
-
 def _table(name: str):
     return _dynamo_resource().Table(name)
 
-
 def _to_dynamo_compatible(value: Any) -> Any:
-    """
-    Convert Python values to DynamoDB compatible types (Decimal for floats).
-    Recurses into lists/dicts.
-    """
     if isinstance(value, float):
         return Decimal(str(value))
     if isinstance(value, dict):
@@ -57,43 +35,100 @@ def _to_dynamo_compatible(value: Any) -> Any:
         return [_to_dynamo_compatible(v) for v in value]
     return value
 
+# -------- Users --------
+def create_or_update_user(user_id: str, payload: Dict[str, Any]) -> bool:
+    """
+    Create or update a user item in the USERS_TABLE.
+    Partition key expected: 'user_id' — change if your table uses a different PK.
+    """
+    try:
+        table = _table(USERS_TABLE)
+        item = {"user_id": str(user_id)}
+        item.update(payload)
+        item = _to_dynamo_compatible(item)
+        table.put_item(Item=item)
+        logger.info("Wrote user %s to Dynamo", user_id)
+        return True
+    except ClientError as e:
+        logger.exception("DynamoDB put_item(user) failed: %s", e)
+        return False
+
+# -------- Plantings --------
+def save_planting_to_dynamodb(planting: Union[Dict[str, Any], object]) -> Optional[str]:
+    """
+    Accepts a dict or a model instance. Stores into PLANTINGS_TABLE.
+    Returns planting_id string on success, otherwise None.
+    """
+    try:
+        if isinstance(planting, dict):
+            item = dict(planting)
+            planting_id = item.get("planting_id") or item.get("id") or str(uuid.uuid4())
+            item["planting_id"] = str(planting_id)
+        else:
+            obj = planting
+            planting_id = str(getattr(obj, "pk", None) or getattr(obj, "id", None) or uuid.uuid4())
+            item = {
+                "planting_id": planting_id,
+                "user_id": str(getattr(obj, "user_id", None) or getattr(getattr(obj, "user", None), "pk", None) or ""),
+                "crop_name": getattr(obj, "crop_name", None),
+                "planting_date": getattr(obj, "planting_date").isoformat() if getattr(obj, "planting_date", None) else None,
+                "harvest_date": getattr(obj, "harvest_date").isoformat() if getattr(obj, "harvest_date", None) else None,
+                "notes": getattr(obj, "notes", None),
+                "batch_id": getattr(obj, "batch_id", None),
+                "image_url": getattr(obj, "image_url", None),
+            }
+        # Clean and convert
+        item = {k: _to_dynamo_compatible(v) for k, v in item.items() if v is not None and k != ""}
+        if "planting_id" not in item:
+            item["planting_id"] = str(uuid.uuid4())
+        # Ensure user_id exists for access control (may be empty if session-only)
+        table = _table(PLANTINGS_TABLE)
+        table.put_item(Item=item)
+        logger.info("Saved planting %s to Dynamo", item["planting_id"])
+        return str(item["planting_id"])
+    except ClientError as e:
+        logger.exception("DynamoDB put_item(planting) failed: %s", e)
+        return None
+    except Exception as e:
+        logger.exception("Unexpected error saving planting to Dynamo: %s", e)
+        return None
 
 def load_user_plantings(user_id: str) -> List[Dict[str, Any]]:
-    user_key = str(user_id)
-    table = _table(PLANTINGS_TABLE)
+    """
+    Return list of plantings for a specific user_id.
+    Queries GSI 'user_id-index' if present; otherwise falls back to a scan+filter.
+    """
     try:
-        resp = table.query(IndexName="user_id-index", KeyConditionExpression=Key("user_id").eq(user_key))
-        items = resp.get("Items", []) or []
-        logger.debug("Queried %d items for user_id %s using GSI", len(items), user_key)
-        return items
-    except ClientError as e:
-        logger.debug("Query by GSI failed for user_id %s: %s. Falling back to scan.", user_key, e)
-    except Exception as exc:
-        logger.exception("Unexpected error querying GSI for user_id %s: %s", user_key, exc)
-
-    # Fallback to scan
-    try:
-        items: List[Dict[str, Any]] = []
-        scan_kwargs = {"FilterExpression": Attr("user_id").eq(user_key)}
-        start_key = None
+        table = _table(PLANTINGS_TABLE)
+        # Try GSI query
+        try:
+            resp = table.query(IndexName="user_id-index", KeyConditionExpression=Key("user_id").eq(str(user_id)))
+            items = resp.get("Items", []) or []
+            logger.debug("Loaded %d plantings for user %s via GSI", len(items), user_id)
+            return items
+        except ClientError as e:
+            logger.debug("GSI query failed, falling back to scan: %s", e)
+        # Fallback scan
+        items, start = [], None
+        scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
         while True:
-            if start_key:
-                scan_kwargs["ExclusiveStartKey"] = start_key
+            if start:
+                scan_kwargs["ExclusiveStartKey"] = start
             resp = table.scan(**scan_kwargs)
             items.extend(resp.get("Items", []) or [])
-            start_key = resp.get("LastEvaluatedKey")
-            if not start_key:
+            start = resp.get("LastEvaluatedKey")
+            if not start:
                 break
-        logger.debug("Scanned and found %d items for user_id %s", len(items), user_key)
+        logger.debug("Scanned and found %d items for user %s", len(items), user_id)
         return items
     except ClientError as e:
-        logger.exception("DynamoDB scan failed for user_id %s: %s", user_key, e)
+        logger.exception("DynamoDB load_user_plantings failed: %s", e)
         return []
-    except Exception as exc:
-        logger.exception("Unexpected error scanning plantings for user_id %s: %s", user_key, exc)
+    except Exception as e:
+        logger.exception("Unexpected error loading plantings: %s", e)
         return []
 
-
+# -------- Token / request helpers --------
 def _extract_userid_from_jwt(token: str) -> Optional[str]:
     if not token:
         return None
@@ -108,121 +143,38 @@ def _extract_userid_from_jwt(token: str) -> Optional[str]:
             padding = "=" * (-len(payload_b64) % 4)
             payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
             payload = json.loads(payload_bytes.decode("utf-8"))
-        user_id = payload.get("sub") or payload.get("username") or payload.get("cognito:username") or payload.get("email")
-        if user_id:
-            return str(user_id)
-        if "claims" in payload and isinstance(payload["claims"], dict):
-            claims = payload["claims"]
-            return str(claims.get("sub") or claims.get("username") or claims.get("email")) if (claims.get("sub") or claims.get("username") or claims.get("email")) else None
+        return str(payload.get("sub") or payload.get("username") or payload.get("email") or payload.get("cognito:username") or "")
+    except Exception as e:
+        logger.debug("JWT parse failed: %s", e)
         return None
-    except Exception as exc:
-        logger.debug("Failed to extract userid from JWT: %s", exc)
-        return None
-
 
 def get_user_id_from_request(request) -> Optional[str]:
-    try:
-        for attr in ("cognito_payload", "jwt_payload", "cognito_user", "cognito_jwt"):
-            payload = getattr(request, attr, None)
-            if payload:
-                if isinstance(payload, dict):
-                    user_id = payload.get("sub") or payload.get("username") or payload.get("email")
-                    if user_id:
-                        return str(user_id)
-                else:
-                    user_id = getattr(payload, "sub", None) or getattr(payload, "username", None)
-                    if user_id:
-                        return str(user_id)
-        user = getattr(request, "user", None)
-        if user and getattr(user, "is_authenticated", False):
-            try:
-                return str(user.pk)
-            except Exception:
-                return getattr(user, "username", None)
-        auth_header = None
-        if hasattr(request, "META"):
-            auth_header = request.META.get("HTTP_AUTHORIZATION")
-        if not auth_header and hasattr(request, "headers"):
-            auth_header = request.headers.get("Authorization")
-        if auth_header:
-            parts = auth_header.split()
-            if len(parts) == 2 and parts[0].lower() == "bearer":
-                token = parts[1]
-                return _extract_userid_from_jwt(token)
-        return None
-    except Exception as exc:
-        logger.exception("Error while extracting user id from request: %s", exc)
-        return None
-
+    # check middleware-attached attributes first
+    for attr in ("cognito_payload", "jwt_payload", "cognito_user"):
+        payload = getattr(request, attr, None)
+        if payload:
+            if isinstance(payload, dict):
+                user_id = payload.get("sub") or payload.get("username") or payload.get("email")
+                if user_id:
+                    return str(user_id)
+    # Django user
+    user = getattr(request, "user", None)
+    if user and getattr(user, "is_authenticated", False):
+        try:
+            return str(user.pk)
+        except Exception:
+            return getattr(user, "username", None)
+    # Authorization header
+    auth = request.META.get("HTTP_AUTHORIZATION") if hasattr(request, "META") else None
+    if not auth and hasattr(request, "headers"):
+        auth = request.headers.get("Authorization")
+    if auth:
+        parts = auth.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return _extract_userid_from_jwt(parts[1])
+    return None
 
 def get_user_id_from_token(token_or_request: Union[str, Any]) -> Optional[str]:
-    try:
-        if not isinstance(token_or_request, str) and (hasattr(token_or_request, "META") or hasattr(token_or_request, "headers")):
-            return get_user_id_from_request(token_or_request)
-        if isinstance(token_or_request, str):
-            return _extract_userid_from_jwt(token_or_request)
-        return None
-    except Exception as exc:
-        logger.exception("Error in get_user_id_from_token: %s", exc)
-        return None
-
-
-def save_planting_to_dynamodb(planting_or_dict: Union[Dict[str, Any], object]) -> bool:
-    """
-    Save a planting to the PLANTINGS_TABLE in DynamoDB.
-
-    Accepts either:
-      - a dict with keys (planting_id, user_id, crop_name, planting_date, harvest_date, notes, batch_id, image_url, ...)
-      - a Django model instance (Planting) - the function will read common attributes.
-    Returns True on success, False otherwise.
-    """
-    try:
-        # Build item dictionary from either an object or a dict
-        if isinstance(planting_or_dict, dict):
-            item = dict(planting_or_dict)
-            # prefer 'planting_id' key, fallback to 'id'
-            item.setdefault("planting_id", str(item.get("id") or item.get("pk") or item.get("planting_id")))
-        else:
-            # lazy import of Django model fields to avoid circular imports
-            # Expect planting_or_dict to have attributes: pk, user_id/user, crop_name, planting_date, harvest_date, notes, batch_id, image or image_url
-            obj = planting_or_dict
-            item = {
-                "planting_id": str(getattr(obj, "pk", None) or getattr(obj, "id", None)),
-                "user_id": str(getattr(obj, "user_id", None) or getattr(getattr(obj, "user", None), "pk", None) or getattr(obj, "user", None)),
-                "crop_name": getattr(obj, "crop_name", None),
-                "planting_date": getattr(obj, "planting_date").isoformat() if getattr(obj, "planting_date", None) else None,
-                "harvest_date": getattr(obj, "harvest_date").isoformat() if getattr(obj, "harvest_date", None) else None,
-                "notes": getattr(obj, "notes", None),
-                "batch_id": getattr(obj, "batch_id", None),
-            }
-            # Try image_url attribute or model ImageField .url if present
-            image_url = None
-            if getattr(obj, "image_url", None):
-                image_url = getattr(obj, "image_url")
-            else:
-                image_field = getattr(obj, "image", None)
-                try:
-                    if image_field and hasattr(image_field, "url"):
-                        image_url = image_field.url
-                except Exception:
-                    # storage backend might raise until saved; ignore
-                    image_url = None
-            if image_url:
-                item["image_url"] = image_url
-
-        # Clean - remove None values and convert floats to Decimal
-        item = {k: _to_dynamo_compatible(v) for k, v in item.items() if v is not None and k != ""}
-        if "planting_id" not in item:
-            logger.error("save_planting_to_dynamodb: planting_id missing - item=%s", item)
-            return False
-
-        table = _table(PLANTINGS_TABLE)
-        table.put_item(Item=item)
-        logger.info("Saved planting %s to DynamoDB table %s", item.get("planting_id"), PLANTINGS_TABLE)
-        return True
-    except ClientError as e:
-        logger.exception("DynamoDB ClientError saving planting: %s", e)
-        return False
-    except Exception as exc:
-        logger.exception("Unexpected error saving planting to DynamoDB: %s", exc)
-        return False
+    if isinstance(token_or_request, str):
+        return _extract_userid_from_jwt(token_or_request)
+    return get_user_id_from_request(token_or_request)
