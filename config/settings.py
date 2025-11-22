@@ -144,5 +144,5 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 
 LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/'  # Redirect to home page after logout (handled by cognito_logout view)
+LOGOUT_REDIRECT_URL = '/login/'  # Redirect to login page after logout
 LOGIN_URL = '/auth/login/'

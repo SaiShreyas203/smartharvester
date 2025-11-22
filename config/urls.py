@@ -16,5 +16,7 @@ urlpatterns = [
     path('auth/login/', views.cognito_login, name='cognito_login'),
     path('auth/callback/', views.cognito_callback, name='cognito_callback'),
     path('auth/logout/', views.cognito_logout, name='cognito_logout'),
+    # Custom logout that clears Cognito tokens (overrides Django's default logout)
+    path('accounts/logout/', views.cognito_logout, name='logout'),
     # removed cognito_auth in favor of `tracker` app
 ]

@@ -409,6 +409,36 @@ def signup(request):
 
 @login_required
 def profile(request):
+    """Handle profile view and profile updates."""
+    if request.method == 'POST':
+        # Handle profile update
+        user = request.user
+        username = request.POST.get('username')
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        
+        # Update username if provided and different
+        if username and username != user.username:
+            user.username = username
+            user.save()
+            logger.info('Profile updated: username changed to %s', username)
+        
+        # Update email if provided and different
+        if email and email != user.email:
+            user.email = email
+            user.save()
+            logger.info('Profile updated: email changed to %s', email)
+        
+        # Update password if provided
+        if password:
+            user.set_password(password)
+            user.save()
+            logger.info('Profile updated: password changed')
+        
+        # Redirect to home after saving
+        return redirect('/')
+    
+    # GET request - show profile page
     return render(request, 'profile.html')
 
 def login_view(request):
