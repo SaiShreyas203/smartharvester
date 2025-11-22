@@ -24,14 +24,15 @@ class CognitoTokenMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Check if user has Cognito tokens in session (avoid triggering DB access via request.user)
-        # Skip this middleware for the callback endpoint to avoid circular issues
-        if request.path == '/auth/callback/':
-            response = self.get_response(request)
-            return response
+        # Skip all auth/session checks for callback endpoint to avoid triggering DB access
+        # This must be the FIRST thing we do - before any request.user or request.session access
+        if request.path.startswith("/auth/callback/"):
+            # Skip loading user/session completely
+            return self.get_response(request)
         
         try:
             # Check session directly for Cognito tokens (both old and new format)
+            # Note: This will trigger session loading, but only for non-callback paths
             id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
             if id_token:
                 try:

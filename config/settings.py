@@ -47,7 +47,6 @@ MIDDLEWARE = [
     'tracker.middleware.CognitoTokenMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'tracker.middleware.CognitoTokenMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
