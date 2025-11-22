@@ -40,15 +40,30 @@ def _to_dynamo_numbers(obj):
 def create_or_update_user(user_id: str, payload: dict) -> bool:
     """
     Create or update a user item in DynamoDB.
-    Partition key: user_id (string)
-    payload: dictionary of attributes to store (email, first_name, ...).
+    Note: Table uses 'username' as partition key (not user_id).
+    payload: dictionary of attributes to store (email, first_name, username, ...).
+    Must include 'username' in payload for partition key.
     """
     table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
-    item = {"user_id": str(user_id)}
+    
+    # Table uses 'username' as partition key, so username must be in payload
+    username = payload.get("username")
+    if not username:
+        # If no username in payload, use user_id as username (fallback)
+        username = str(user_id)
+        payload["username"] = username
+        logger.warning("No username in payload, using user_id as username: %s", username)
+    
+    # Partition key is username, but we also store user_id for reference
+    item = {"username": str(username)}
+    if user_id and user_id != username:
+        item["user_id"] = str(user_id)
     item.update(payload)
     item = _to_dynamo_numbers(item)
+    
     try:
         table.put_item(Item=item)
+        logger.info("✓ Saved user to DynamoDB: username=%s, user_id=%s", username, user_id)
         return True
     except ClientError as e:
         logger.exception("DynamoDB put_item (user) failed: %s", e)
@@ -56,11 +71,30 @@ def create_or_update_user(user_id: str, payload: dict) -> bool:
 
 
 def delete_user(user_id: str) -> bool:
-    """Delete a user from DynamoDB."""
+    """
+    Delete a user from DynamoDB.
+    Note: Table uses 'username' as partition key, so we need to find user by user_id first.
+    """
     table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
     try:
-        table.delete_item(Key={"user_id": str(user_id)})
-        return True
+        # Since partition key is username, we need to scan to find by user_id
+        # Or if we have username, use it directly
+        # For now, try to find by user_id attribute
+        response = table.scan(
+            FilterExpression='user_id = :user_id',
+            ExpressionAttributeValues={':user_id': str(user_id)}
+        )
+        
+        if response.get('Items'):
+            # Found user, delete by username (partition key)
+            username = response['Items'][0].get('username')
+            if username:
+                table.delete_item(Key={"username": str(username)})
+                logger.info("✓ Deleted user from DynamoDB: username=%s, user_id=%s", username, user_id)
+                return True
+        
+        logger.warning("User with user_id=%s not found in DynamoDB", user_id)
+        return False
     except ClientError as e:
         logger.exception("DynamoDB delete_item (user) failed: %s", e)
         return False
@@ -187,18 +221,27 @@ def save_user_to_dynamodb(user_data):
     payload['last_login'] = datetime.utcnow().isoformat()
     payload['created_at'] = datetime.utcnow().isoformat()
     
-    # Check if user exists to preserve created_at
+    # Ensure username is in payload (required for partition key)
+    if 'username' not in payload and 'username' in user_data:
+        payload['username'] = str(user_data['username'])
+    elif 'username' not in payload:
+        # Use user_id as username if no username provided
+        payload['username'] = str(user_id)
+    
+    username = payload['username']
+    
+    # Check if user exists to preserve created_at (by username since it's the partition key)
     try:
         table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
-        existing = table.get_item(Key={"user_id": str(user_id)})
+        existing = table.get_item(Key={"username": str(username)})
         if 'Item' in existing:
-            logger.info('User %s already exists, updating last_login', user_id)
+            logger.info('User %s already exists, updating last_login', username)
             if 'created_at' in existing['Item']:
                 payload['created_at'] = existing['Item']['created_at']
             if 'notifications_enabled' in existing['Item']:
                 payload['notifications_enabled'] = existing['Item']['notifications_enabled']
         else:
-            logger.info('Creating new user: %s', user_id)
+            logger.info('Creating new user: %s', username)
             payload['notifications_enabled'] = True  # Default to enabled
     except Exception as check_error:
         logger.warning('Could not check if user exists: %s', check_error)
