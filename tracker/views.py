@@ -57,7 +57,16 @@ def load_plant_data():
         return json.load(f)
 
 def index(request):
-    user_plantings = request.session.get('user_plantings', [])
+    # Load plantings from DynamoDB using user ID from Cognito token
+    from .dynamodb_helper import load_user_plantings, get_user_id_from_token
+    
+    user_id = get_user_id_from_token(request)
+    if user_id:
+        user_plantings = load_user_plantings(user_id)
+    else:
+        # Fallback to session for backward compatibility or unauthenticated users
+        user_plantings = request.session.get('user_plantings', [])
+    
     today = date.today()
     
     ongoing, upcoming, past = [], [], []
@@ -132,26 +141,53 @@ def save_planting(request):
         calculate = _get_calculate_plan()
         calculated_plan = calculate(crop_name, planting_date, plant_data)
 
-        # Convert due_date to ISO strings for storage in session
+        # Convert due_date to ISO strings for storage
         for task in calculated_plan:
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        user_plantings = request.session.get('user_plantings', [])
-        user_plantings.append({
-            'crop_name': crop_name,
-            'planting_date': planting_date.isoformat(),
-            'batch_id': batch_id,
-            'notes': notes,
-            'plan': calculated_plan,
-            'image_url': image_url
-        })
-        request.session['user_plantings'] = user_plantings
+        # Save to DynamoDB
+        from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        
+        user_id = get_user_id_from_token(request)
+        if user_id:
+            # Load existing plantings from DynamoDB
+            user_plantings = load_user_plantings(user_id)
+            # Add new planting
+            user_plantings.append({
+                'crop_name': crop_name,
+                'planting_date': planting_date.isoformat(),
+                'batch_id': batch_id,
+                'notes': notes,
+                'plan': calculated_plan,
+                'image_url': image_url
+            })
+            # Save back to DynamoDB
+            save_user_plantings(user_id, user_plantings)
+        else:
+            # Fallback to session for backward compatibility
+            user_plantings = request.session.get('user_plantings', [])
+            user_plantings.append({
+                'crop_name': crop_name,
+                'planting_date': planting_date.isoformat(),
+                'batch_id': batch_id,
+                'notes': notes,
+                'plan': calculated_plan,
+                'image_url': image_url
+            })
+            request.session['user_plantings'] = user_plantings
 
     return redirect('index')
 
 def edit_planting_view(request, planting_id):
-    user_plantings = request.session.get('user_plantings', [])
+    from .dynamodb_helper import load_user_plantings, get_user_id_from_token
+    
+    user_id = get_user_id_from_token(request)
+    if user_id:
+        user_plantings = load_user_plantings(user_id)
+    else:
+        user_plantings = request.session.get('user_plantings', [])
+    
     try:
         planting_to_edit = user_plantings[planting_id].copy()
         planting_to_edit['id'] = planting_id
@@ -170,7 +206,14 @@ def edit_planting_view(request, planting_id):
 
 def update_planting(request, planting_id):
     if request.method == 'POST':
-        user_plantings = request.session.get('user_plantings', [])
+        from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        
+        user_id = get_user_id_from_token(request)
+        if user_id:
+            user_plantings = load_user_plantings(user_id)
+        else:
+            user_plantings = request.session.get('user_plantings', [])
+        
         if planting_id >= len(user_plantings):
             return redirect('index')
 
@@ -203,7 +246,7 @@ def update_planting(request, planting_id):
         calculate = _get_calculate_plan()
         calculated_plan = calculate(crop_name, planting_date, plant_data)
 
-        # Convert due_date to ISO strings for storage in session
+        # Convert due_date to ISO strings for storage
         for task in calculated_plan:
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
@@ -216,16 +259,32 @@ def update_planting(request, planting_id):
             'plan': calculated_plan,
             'image_url': image_url
         }
-        request.session['user_plantings'] = user_plantings
+        
+        # Save to DynamoDB or session
+        if user_id:
+            save_user_plantings(user_id, user_plantings)
+        else:
+            request.session['user_plantings'] = user_plantings
 
     return redirect('index')
 
 def delete_planting(request, planting_id):
     if request.method == 'POST':
-        user_plantings = request.session.get('user_plantings', [])
+        from .dynamodb_helper import load_user_plantings, save_user_plantings, get_user_id_from_token
+        
+        user_id = get_user_id_from_token(request)
+        if user_id:
+            user_plantings = load_user_plantings(user_id)
+        else:
+            user_plantings = request.session.get('user_plantings', [])
+        
         try:
             del user_plantings[planting_id]
-            request.session['user_plantings'] = user_plantings
+            # Save to DynamoDB or session
+            if user_id:
+                save_user_plantings(user_id, user_plantings)
+            else:
+                request.session['user_plantings'] = user_plantings
         except IndexError:
             pass
     return redirect('index')

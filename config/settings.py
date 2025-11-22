@@ -114,6 +114,10 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
 AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
 AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
 
+# -------- AWS DYNAMODB CONFIGURATION --------
+# DynamoDB table name for storing user plantings
+DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv('DYNAMODB_PLANTINGS_TABLE_NAME', 'user_plantings')
+
 # --- STATIC FILES (CSS, JavaScript, Images) ---
 if IS_PRODUCTION:
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
