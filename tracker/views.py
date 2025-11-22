@@ -67,19 +67,30 @@ def index(request):
         user_plantings = load_user_plantings(user_id)
         logger.info('Loaded %d plantings from DynamoDB for user %s', len(user_plantings), user_id)
         
-        # Migrate any existing session data to DynamoDB (one-time migration)
+        # If DynamoDB is empty, check session for fallback data
         session_plantings = request.session.get('user_plantings', [])
-        if session_plantings and not user_plantings:
-            logger.info('Migrating %d plantings from session to DynamoDB for user %s', len(session_plantings), user_id)
-            migrate_session_to_dynamodb(user_id, session_plantings)
-            user_plantings = load_user_plantings(user_id)
-            # Clear session after migration
-            request.session.pop('user_plantings', None)
-            logger.info('Migration complete, now have %d plantings in DynamoDB', len(user_plantings))
+        if session_plantings:
+            if not user_plantings:
+                # Try to migrate session data to DynamoDB
+                logger.info('Migrating %d plantings from session to DynamoDB for user %s', len(session_plantings), user_id)
+                if migrate_session_to_dynamodb(user_id, session_plantings):
+                    user_plantings = load_user_plantings(user_id)
+                    # Clear session after successful migration
+                    request.session.pop('user_plantings', None)
+                    logger.info('Migration complete, now have %d plantings in DynamoDB', len(user_plantings))
+                else:
+                    # Migration failed, use session data as fallback
+                    logger.warning('DynamoDB migration failed, using session data as fallback')
+                    user_plantings = session_plantings
+            else:
+                # DynamoDB has data, clear session
+                request.session.pop('user_plantings', None)
     else:
-        # No user ID - user not logged in, return empty list
-        logger.warning('No user_id found - user may not be logged in, returning empty plantings list')
-        user_plantings = []
+        # No user ID - try session as fallback, then empty list
+        logger.warning('No user_id found - trying session fallback')
+        user_plantings = request.session.get('user_plantings', [])
+        if user_plantings:
+            logger.info('Using %d plantings from session (user not authenticated)', len(user_plantings))
     
     today = date.today()
     
@@ -184,10 +195,16 @@ def save_planting(request):
         logger.info('Added new planting, total now: %d', len(user_plantings))
         
         # Save back to DynamoDB
-        if save_user_plantings(user_id, user_plantings):
+        save_success = save_user_plantings(user_id, user_plantings)
+        if save_success:
             logger.info('✓ Successfully saved %d plantings to DynamoDB for user %s', len(user_plantings), user_id)
+            # Clear any session data after successful DynamoDB save
+            request.session.pop('user_plantings', None)
         else:
-            logger.error('✗ FAILED to save planting to DynamoDB for user %s', user_id)
+            logger.error('✗ FAILED to save planting to DynamoDB for user %s - falling back to session', user_id)
+            # Fallback to session if DynamoDB fails (temporary until table is created)
+            request.session['user_plantings'] = user_plantings
+            logger.warning('Saved to session as fallback. Please create DynamoDB table: python scripts/create_dynamodb_table.py')
 
     return redirect('index')
 

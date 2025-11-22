@@ -89,6 +89,23 @@ def save_user_plantings(user_id, plantings):
         
         # Save to DynamoDB
         try:
+            from botocore.exceptions import ClientError
+            
+            # First check if table exists
+            try:
+                dynamodb.describe_table(TableName=DYNAMODB_TABLE_NAME)
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == 'ResourceNotFoundException':
+                    logger.error('DynamoDB table %s does not exist!', DYNAMODB_TABLE_NAME)
+                    logger.error('Please run: python scripts/create_dynamodb_table.py')
+                    return False
+                else:
+                    logger.warning('Could not check if table exists: %s', e)
+            except Exception as describe_error:
+                logger.warning('Could not check if table exists: %s', describe_error)
+            
+            # Save to DynamoDB
             dynamodb.put_item(
                 TableName=DYNAMODB_TABLE_NAME,
                 Item={
@@ -99,15 +116,16 @@ def save_user_plantings(user_id, plantings):
             )
             logger.info('✓ Saved %d plantings for user %s to DynamoDB table %s', len(plantings), user_id, DYNAMODB_TABLE_NAME)
             return True
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'ResourceNotFoundException':
+                logger.error('DynamoDB table %s does not exist!', DYNAMODB_TABLE_NAME)
+                logger.error('Please run: python scripts/create_dynamodb_table.py')
+            else:
+                logger.exception('DynamoDB ClientError for user %s: %s', user_id, e)
+            return False
         except Exception as db_error:
             logger.exception('DynamoDB put_item failed for user %s: %s', user_id, db_error)
-            # Check if table exists
-            try:
-                dynamodb.describe_table(TableName=DYNAMODB_TABLE_NAME)
-                logger.error('Table %s exists but put_item failed', DYNAMODB_TABLE_NAME)
-            except Exception as describe_error:
-                logger.error('Table %s does not exist or cannot be accessed. Error: %s', DYNAMODB_TABLE_NAME, describe_error)
-                logger.error('Please run: python scripts/create_dynamodb_table.py')
             return False
     except Exception as e:
         logger.exception('Error saving plantings to DynamoDB: %s', e)
@@ -130,6 +148,22 @@ def load_user_plantings(user_id):
     
     try:
         dynamodb = get_dynamodb_client()
+        
+        # Check if table exists first
+        try:
+            from botocore.exceptions import ClientError
+            try:
+                dynamodb.describe_table(TableName=DYNAMODB_TABLE_NAME)
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == 'ResourceNotFoundException':
+                    logger.warning('DynamoDB table %s does not exist - returning empty list', DYNAMODB_TABLE_NAME)
+                else:
+                    logger.warning('Error checking DynamoDB table: %s', e)
+                return []
+        except Exception as e:
+            logger.warning('DynamoDB table %s may not exist: %s', DYNAMODB_TABLE_NAME, e)
+            return []
         
         response = dynamodb.get_item(
             TableName=DYNAMODB_TABLE_NAME,
