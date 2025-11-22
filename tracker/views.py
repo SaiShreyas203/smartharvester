@@ -57,63 +57,37 @@ def load_plant_data():
         return json.load(f)
 
 def index(request):
-    # Load plantings from DynamoDB using user ID from Cognito token
-    from .dynamodb_helper import load_user_plantings, get_user_id_from_token, migrate_session_to_dynamodb
+    """
+    Display the user's saved plantings.
+    Similar to the original simple code, but loads from DynamoDB and session.
+    """
+    from .dynamodb_helper import load_user_plantings, get_user_id_from_token
     
-    # Initialize user_plantings to empty list as default
+    # Initialize plantings list (like original code)
     user_plantings = []
     
-    try:
-        user_id = get_user_id_from_token(request)
-        logger.info('Index view: user_id extracted: %s', user_id if user_id else 'None')
-        
-        # Always check session first - it's the most reliable for immediate display
-        session_plantings = request.session.get('user_plantings', [])
-        logger.info('Session contains %d plantings', len(session_plantings))
-        
-        if user_id:
-            logger.info('Loading plantings from DynamoDB for user_id: %s', user_id)
-            # Load from DynamoDB
+    # Get user_id from token
+    user_id = get_user_id_from_token(request)
+    logger.info('Index: user_id = %s', user_id if user_id else 'None')
+    
+    # Try to load from DynamoDB first if user_id exists
+    if user_id:
+        try:
             dynamodb_plantings = load_user_plantings(user_id)
-            logger.info('Loaded %d plantings from DynamoDB for user %s', len(dynamodb_plantings), user_id)
-            
-            # Use DynamoDB data if available, otherwise use session
             if dynamodb_plantings:
                 user_plantings = dynamodb_plantings
-                # Clear session if DynamoDB has data
-                if session_plantings:
-                    request.session.pop('user_plantings', None)
-                    logger.info('Using DynamoDB data (%d plantings), cleared session', len(user_plantings))
-            elif session_plantings:
-                # DynamoDB is empty but session has data - use session and try to migrate
-                user_plantings = session_plantings
-                logger.info('Using session data (%d plantings) - DynamoDB is empty', len(user_plantings))
-                # Try to migrate to DynamoDB in background (don't block display)
-                try:
-                    if migrate_session_to_dynamodb(user_id, session_plantings):
-                        logger.info('Successfully migrated %d plantings to DynamoDB', len(session_plantings))
-                        request.session.pop('user_plantings', None)
-                except Exception as migrate_error:
-                    logger.warning('Migration failed (non-critical): %s', migrate_error)
-            else:
-                # Both are empty
-                user_plantings = []
-                logger.info('No plantings found in DynamoDB or session')
-        else:
-            # No user ID - use session only
-            logger.warning('No user_id found - using session data only')
-            user_plantings = session_plantings
-            if user_plantings:
-                logger.info('Using %d plantings from session (user not authenticated)', len(user_plantings))
-            else:
-                logger.info('No plantings found in session')
-    except Exception as e:
-        logger.exception('Error in index view while loading plantings: %s', e)
-        # Fallback to session if there's an error
-        user_plantings = request.session.get('user_plantings', [])
-        logger.warning('Using session fallback due to error: %d plantings', len(user_plantings))
+                logger.info('Loaded %d plantings from DynamoDB', len(user_plantings))
+        except Exception as e:
+            logger.exception('Error loading from DynamoDB: %s', e)
     
-    logger.info('Final plantings count for display: %d', len(user_plantings))
+    # If no DynamoDB data, use session (like original code's approach)
+    if not user_plantings:
+        session_plantings = request.session.get('user_plantings', [])
+        if session_plantings:
+            user_plantings = session_plantings
+            logger.info('Using %d plantings from session', len(user_plantings))
+    
+    logger.info('Displaying %d plantings total', len(user_plantings))
     
     today = date.today()
     
@@ -207,17 +181,14 @@ def save_planting(request):
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        # Save to DynamoDB - REQUIRED for logged-in users
-        from .dynamodb_helper import load_user_plantings, save_planting_to_dynamodb
+        # Save planting (similar to original simple code, but with DynamoDB/S3)
+        from .dynamodb_helper import save_planting_to_dynamodb, get_user_id_from_token
         
-        # user_id already retrieved above for image upload
+        # Get user_id if not already retrieved
         if not user_id:
-            logger.error('Cannot save planting: user not authenticated (no user_id from token)')
-            return redirect('index')
+            user_id = get_user_id_from_token(request)
         
-        logger.info('Saving planting for user_id: %s', user_id)
-        
-        # Create new planting
+        # Create new planting (like original code) - always create it
         new_planting = {
             'crop_name': crop_name,
             'planting_date': planting_date.isoformat(),
@@ -227,28 +198,26 @@ def save_planting(request):
             'image_url': image_url
         }
         
-        # Save individual planting to DynamoDB
-        planting_id = save_planting_to_dynamodb(user_id, new_planting)
-        if planting_id:
-            logger.info('✓ Successfully saved planting %s to DynamoDB for user %s', planting_id, user_id)
-            new_planting['planting_id'] = planting_id
-        else:
-            logger.error('✗ FAILED to save planting to DynamoDB for user %s', user_id)
-            logger.warning('Data will be saved to session only. Please check DynamoDB plantings table.')
+        logger.info('Saving planting for user: %s', user_id if user_id else 'None')
+        logger.info('Crop: %s, Planted on: %s', crop_name, planting_date)
+        logger.info('Calculated Plan: %d tasks', len(calculated_plan))
         
-        # Always save to session for immediate visibility
-        user_plantings = load_user_plantings(user_id)
-        # If DynamoDB save failed, add to session list
-        if not planting_id:
-            user_plantings = request.session.get('user_plantings', [])
-            user_plantings.append(new_planting)
-        else:
-            # Reload from DynamoDB to get the saved planting
-            user_plantings = load_user_plantings(user_id)
+        # Try to save to DynamoDB if user_id exists (for persistence)
+        if user_id:
+            planting_id = save_planting_to_dynamodb(user_id, new_planting)
+            if planting_id:
+                logger.info('✓ Saved planting %s to DynamoDB', planting_id)
+                new_planting['planting_id'] = planting_id
+            else:
+                logger.warning('Failed to save to DynamoDB, using session only')
         
+        # Always save to session for immediate visibility (like original code)
+        user_plantings = request.session.get('user_plantings', [])
+        user_plantings.append(new_planting)
         request.session['user_plantings'] = user_plantings
         request.session.modified = True
-        logger.info('Saved %d plantings to session for immediate display', len(user_plantings))
+        
+        logger.info('Saved to session: Crop=%s, Date=%s, Total plantings=%d', crop_name, planting_date, len(user_plantings))
 
     return redirect('index')
 
