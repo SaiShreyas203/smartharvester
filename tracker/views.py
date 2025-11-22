@@ -245,11 +245,26 @@ def cognito_callback(request):
     from django.db import OperationalError
 
     logger.info('Cognito callback received for path: %s', request.path)
+    logger.info('Cognito callback query params: %s', request.GET.dict())
+    
+    # Check for error responses from Cognito first
+    error = request.GET.get('error')
+    error_description = request.GET.get('error_description')
+    if error:
+        logger.error('Cognito callback error: %s - %s', error, error_description)
+        # For invalid_scope errors, provide helpful message
+        if error == 'invalid_scope':
+            error_msg = f"Authentication error: Invalid scope. Please check Cognito app client settings. Details: {error_description or error}"
+        else:
+            error_msg = f"Authentication error: {error_description or error}"
+        # Redirect to home with error message
+        from urllib.parse import quote
+        return redirect(f'/?auth_error={quote(error_msg)}')
     
     code = request.GET.get('code')
     if not code:
-        logger.warning('Cognito callback: No code provided')
-        return HttpResponse("No code provided", status=400)
+        logger.warning('Cognito callback: No code provided and no error - unexpected response')
+        return HttpResponse("No code provided. Please try logging in again.", status=400)
 
     token_url = f"https://{settings.COGNITO_DOMAIN}/oauth2/token"
 

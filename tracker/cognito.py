@@ -41,16 +41,24 @@ def verify_id_token(id_token, audience=None):
     return payload
 
 
-def build_authorize_url(state=None, scope='openid email profile'):
+def build_authorize_url(state=None, scope=None):
+    """
+    Build Cognito OAuth2 authorization URL.
+    If scope is not provided, uses COGNITO_SCOPE from settings (default: 'openid email').
+    Ensure the scopes match what's enabled in your Cognito app client settings.
+    """
     domain = settings.COGNITO_DOMAIN
     client_id = settings.COGNITO_CLIENT_ID
     redirect_uri = settings.COGNITO_REDIRECT_URI
+    # Use scope from parameter, settings, or default
+    if scope is None:
+        scope = getattr(settings, 'COGNITO_SCOPE', 'openid email')
     base = f"https://{domain}/oauth2/authorize"
     params = {
         'response_type': 'code',
         'client_id': client_id,
         'redirect_uri': redirect_uri,
-        'scope': scope,
+        'scope': scope,  # Space-separated is correct for OAuth2
     }
     if state:
         params['state'] = state

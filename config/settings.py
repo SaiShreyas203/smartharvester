@@ -17,6 +17,8 @@ COGNITO_CLIENT_SECRET = os.getenv("COGNITO_CLIENT_SECRET")
 COGNITO_DOMAIN = os.getenv("COGNITO_DOMAIN")
 COGNITO_REDIRECT_URI = os.getenv("COGNITO_REDIRECT_URI")
 COGNITO_REGION = os.getenv("COGNITO_REGION")
+# OAuth2 scopes - default to 'openid email'. Use 'openid email profile' if profile scope is enabled in Cognito app client
+COGNITO_SCOPE = os.getenv("COGNITO_SCOPE", "openid email")
 
 if IS_PRODUCTION:
     allowed_hosts_list = [os.environ.get('EB_HOSTNAME', '.localhost')]
