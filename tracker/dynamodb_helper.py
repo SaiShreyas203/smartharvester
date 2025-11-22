@@ -22,7 +22,28 @@ def dynamo_resource():
     """Get or create DynamoDB resource (singleton)."""
     global _dynamo
     if _dynamo is None:
-        _dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
+        # Check for AWS credentials from Django settings or environment
+        try:
+            from django.conf import settings
+            access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', None)
+            secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
+            
+            if access_key and secret_key:
+                _dynamo = boto3.resource(
+                    "dynamodb",
+                    aws_access_key_id=access_key,
+                    aws_secret_access_key=secret_key,
+                    region_name=AWS_REGION
+                )
+                logger.info("DynamoDB resource created with explicit credentials")
+            else:
+                # Use default credentials (from environment or IAM role)
+                _dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
+                logger.info("DynamoDB resource created with default credentials")
+        except Exception as e:
+            logger.exception("Error creating DynamoDB resource: %s", e)
+            # Fallback to default
+            _dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
     return _dynamo
 
 
@@ -44,29 +65,39 @@ def create_or_update_user(user_id: str, payload: dict) -> bool:
     payload: dictionary of attributes to store (email, first_name, username, ...).
     Must include 'username' in payload for partition key.
     """
-    table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
-    
-    # Table uses 'username' as partition key, so username must be in payload
-    username = payload.get("username")
-    if not username:
-        # If no username in payload, use user_id as username (fallback)
-        username = str(user_id)
-        payload["username"] = username
-        logger.warning("No username in payload, using user_id as username: %s", username)
-    
-    # Partition key is username, but we also store user_id for reference
-    item = {"username": str(username)}
-    if user_id and user_id != username:
-        item["user_id"] = str(user_id)
-    item.update(payload)
-    item = _to_dynamo_numbers(item)
-    
     try:
+        table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
+        
+        # Table uses 'username' as partition key, so username must be in payload
+        username = payload.get("username")
+        if not username:
+            # If no username in payload, use user_id as username (fallback)
+            username = str(user_id)
+            payload["username"] = username
+            logger.warning("No username in payload, using user_id as username: %s", username)
+        
+        # Partition key is username, but we also store user_id for reference
+        item = {"username": str(username)}
+        if user_id and str(user_id) != str(username):
+            item["user_id"] = str(user_id)
+        item.update(payload)
+        item = _to_dynamo_numbers(item)
+        
+        logger.info("Attempting to save user to DynamoDB: username=%s, user_id=%s, table=%s", 
+                   username, user_id, DYNAMO_USERS_TABLE)
+        logger.debug("Item to save: %s", item)
+        
         table.put_item(Item=item)
-        logger.info("✓ Saved user to DynamoDB: username=%s, user_id=%s", username, user_id)
+        logger.info("✓✓✓ SUCCESS: Saved user to DynamoDB: username=%s, user_id=%s", username, user_id)
         return True
     except ClientError as e:
-        logger.exception("DynamoDB put_item (user) failed: %s", e)
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+        logger.error("✗✗✗ DynamoDB put_item (user) failed: Code=%s, Message=%s", error_code, error_message)
+        logger.exception("Full error details:")
+        return False
+    except Exception as e:
+        logger.exception("✗✗✗ Unexpected error saving user to DynamoDB: %s", e)
         return False
 
 

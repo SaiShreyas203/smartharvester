@@ -27,16 +27,21 @@ def sync_user_to_dynamo(sender, instance, created, **kwargs):
         if instance.first_name or instance.last_name:
             payload["name"] = f"{instance.first_name} {instance.last_name}".strip()
         
-        logger.info("Signal: Syncing user %s (pk=%s) to DynamoDB (created=%s)", 
-                   instance.username, instance.pk, created)
+        logger.info("=" * 60)
+        logger.info("SIGNAL FIRED: Syncing user to DynamoDB")
+        logger.info("Username: %s", instance.username)
+        logger.info("User ID (pk): %s", instance.pk)
+        logger.info("Email: %s", instance.email)
+        logger.info("Created: %s", created)
+        logger.info("=" * 60)
         
         ok = create_or_update_user(user_id=user_id, payload=payload)
         if not ok:
-            logger.error("✗ DynamoDB write returned False for user %s (pk=%s)", instance.username, instance.pk)
+            logger.error("✗✗✗ DynamoDB write returned False for user %s (pk=%s)", instance.username, instance.pk)
         else:
-            logger.info("✓ DynamoDB write succeeded for user %s (pk=%s)", instance.username, instance.pk)
+            logger.info("✓✓✓ DynamoDB write succeeded for user %s (pk=%s)", instance.username, instance.pk)
     except Exception as exc:
-        logger.exception("✗ Failed to sync user %s to DynamoDB: %s", instance.pk, exc)
+        logger.exception("✗✗✗ FAILED to sync user %s to DynamoDB: %s", instance.pk, exc)
         # Don't raise - signal handlers should not break the save operation
 
 @receiver(post_delete, sender=User)

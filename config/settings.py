@@ -36,7 +36,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'tracker',
+    'tracker.apps.TrackerConfig',  # Use TrackerConfig to ensure signals are loaded
     'storages',
     'core',  # provides health endpoint and small utilities
 ]
