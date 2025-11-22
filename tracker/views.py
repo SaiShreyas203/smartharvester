@@ -235,6 +235,7 @@ def cognito_login(request):
     """Redirect user to Cognito Hosted UI login."""
     from .cognito import build_authorize_url
     # Build the actual redirect URI from the request to ensure it matches exactly
+    # Use the callback URL: https://3.235.196.246.nip.io/auth/callback/
     callback_url = request.build_absolute_uri('/auth/callback/')
     # Remove query parameters if any
     from urllib.parse import urlparse, urlunparse
@@ -243,6 +244,21 @@ def cognito_login(request):
     url = build_authorize_url(redirect_uri=callback_url)
     logger.info('Cognito login: Redirecting to Cognito with redirect_uri: %s', callback_url)
     return redirect(url)
+
+
+def cognito_logout(request):
+    """Logout user by clearing Cognito tokens and redirecting."""
+    # Clear all Cognito tokens from session
+    request.session.pop('id_token', None)
+    request.session.pop('access_token', None)
+    request.session.pop('refresh_token', None)
+    request.session.pop('cognito_tokens', None)
+    
+    logger.info('Cognito logout: Cleared tokens from session')
+    
+    # Redirect to logout redirect URI (defaults to home page)
+    logout_redirect = getattr(settings, 'COGNITO_LOGOUT_REDIRECT_URI', '/')
+    return redirect(logout_redirect)
 
 
 def cognito_callback(request):

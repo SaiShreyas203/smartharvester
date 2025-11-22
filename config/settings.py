@@ -15,7 +15,8 @@ load_dotenv()
 COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")
 COGNITO_CLIENT_SECRET = os.getenv("COGNITO_CLIENT_SECRET")
 COGNITO_DOMAIN = os.getenv("COGNITO_DOMAIN")
-COGNITO_REDIRECT_URI = os.getenv("COGNITO_REDIRECT_URI")
+COGNITO_REDIRECT_URI = os.getenv("COGNITO_REDIRECT_URI", "https://3.235.196.246.nip.io/auth/callback/")
+COGNITO_LOGOUT_REDIRECT_URI = os.getenv("COGNITO_LOGOUT_REDIRECT_URI", "https://3.235.196.246.nip.io/")
 COGNITO_REGION = os.getenv("COGNITO_REGION")
 # OAuth2 scopes - default to 'openid email'. Use 'openid email profile' if profile scope is enabled in Cognito app client
 COGNITO_SCOPE = os.getenv("COGNITO_SCOPE", "openid email")
@@ -143,5 +144,5 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 
 LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/auth/login/'  # Redirect to Cognito login page after logout
+LOGOUT_REDIRECT_URL = '/'  # Redirect to home page after logout (handled by cognito_logout view)
 LOGIN_URL = '/auth/login/'
