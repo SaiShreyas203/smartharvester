@@ -179,24 +179,34 @@ def add_planting_view(request):
     return render(request, 'tracker/edit.html', context)
 
 def save_planting(request):
+    from datetime import date
+    import logging
+    import uuid
+
+    logger = logging.getLogger(__name__)
+
     if request.method == 'POST':
         crop_name = request.POST.get('crop_name')
         planting_date_str = request.POST.get('planting_date')
         batch_id = request.POST.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
         notes = request.POST.get('notes', '')
 
-        # Get user_id first for image upload
+        # Get user_id first for image upload (lazy import)
         from .dynamodb_helper import get_user_id_from_token
         user_id = get_user_id_from_token(request)
-        
+
         # Image upload logic - organized by user_id in S3
         image_url = ""
         if 'image' in request.FILES and request.FILES['image'].name:
-            from .s3_helper import upload_planting_image
-            if user_id:
-                image_url = upload_planting_image(request.FILES['image'], user_id)
-            else:
-                logger.warning('Cannot upload image: user not authenticated')
+            try:
+                from .s3_helper import upload_planting_image
+                if user_id:
+                    # upload_planting_image should return the public URL or a presigned URL
+                    image_url = upload_planting_image(request.FILES['image'], user_id)
+                else:
+                    logger.warning('Cannot upload image: user not authenticated')
+            except Exception:
+                logger.exception("Image upload failed")
 
         if not crop_name or not planting_date_str:
             return redirect('index')
@@ -212,14 +222,7 @@ def save_planting(request):
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        # Save planting (similar to original simple code, but with DynamoDB/S3)
-        from .dynamodb_helper import save_planting_to_dynamodb, get_user_id_from_token
-        
-        # Get user_id if not already retrieved
-        if not user_id:
-            user_id = get_user_id_from_token(request)
-        
-        # Create new planting (like original code) - always create it
+        # Build planting dict
         new_planting = {
             'crop_name': crop_name,
             'planting_date': planting_date.isoformat(),
@@ -228,26 +231,36 @@ def save_planting(request):
             'plan': calculated_plan,
             'image_url': image_url
         }
-        
+
         logger.info('Saving planting for user: %s', user_id if user_id else 'None')
         logger.info('Crop: %s, Planted on: %s', crop_name, planting_date)
         logger.info('Calculated Plan: %d tasks', len(calculated_plan))
-        
+
+        # Ensure planting has an id (prefer server-generated UUID for session immediately)
+        local_planting_id = str(uuid.uuid4())
+        new_planting['planting_id'] = local_planting_id
+
         # Try to save to DynamoDB if user_id exists (for persistence)
         if user_id:
-            planting_id = save_planting_to_dynamodb(user_id, new_planting)
-            if planting_id:
-                logger.info('✓ Saved planting %s to DynamoDB', planting_id)
-                new_planting['planting_id'] = planting_id
-            else:
-                logger.warning('Failed to save to DynamoDB, using session only')
-        
-        # Always save to session for immediate visibility (like original code)
+            try:
+                # lazy import the helper that returns planting_id on success
+                from .dynamodb_helper import save_planting_to_dynamodb
+                returned_id = save_planting_to_dynamodb(new_planting)
+                # If helper returns the id (string), replace local id with that; otherwise keep local id
+                if returned_id:
+                    new_planting['planting_id'] = returned_id
+                    logger.info('✓ Saved planting %s to DynamoDB (returned id)', returned_id)
+                else:
+                    logger.warning('Dynamo save returned falsy value, using local planting id %s', local_planting_id)
+            except Exception:
+                logger.exception('Failed to save planting to DynamoDB; continuing with session-only storage')
+
+        # Always save to session for immediate visibility
         user_plantings = request.session.get('user_plantings', [])
         user_plantings.append(new_planting)
         request.session['user_plantings'] = user_plantings
         request.session.modified = True
-        
+
         logger.info('Saved to session: Crop=%s, Date=%s, Total plantings=%d', crop_name, planting_date, len(user_plantings))
 
     return redirect('index')
@@ -888,3 +901,5 @@ def toggle_notifications(request):
     except Exception as e:
         logger.exception('Error toggling notifications: %s', e)
         return JsonResponse({'error': str(e)}, status=500)
+    
+    

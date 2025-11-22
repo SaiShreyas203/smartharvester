@@ -19,7 +19,7 @@
             margin: 0; display: flex; flex-direction: column;
             position: relative; color: var(--text-color);
             transition: background 2s ease;
-            min-height: 100%; 
+            min-height: 100%;
         }
         body.day { background: linear-gradient(to bottom, var(--day-bg-start), var(--day-bg-end)) no-repeat; background-attachment: fixed; }
         body.evening { background: linear-gradient(to bottom, var(--evening-bg-start), var(--evening-bg-end)) no-repeat; background-attachment: fixed; }
@@ -129,7 +129,7 @@
 
             <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;" title="Toggle notifications" onclick="toggleNotifications()">{% if notifications_enabled %}🔔{% else %}🔕{% endif %}</button>
 
-            <div id="profile-icon" style="cursor:pointer; width:40px; height:40px; border-radius:50%; background:#6fbf6f; display:flex; align-items:center; justify-content:center; font-weight:bold;">
+            <div id="profile-icon" class="avatar" style="cursor:pointer; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-weight:bold;">
                 {{ user.username|slice:":2"|upper }}
             </div>
         </div>
@@ -170,11 +170,18 @@
                         </div>
                         {% endif %}
                     </div>
+
+                    {% comment %} Image display: prefer planting.image_url (Dynamo / S3 return), fallback to ImageField on model {% endcomment %}
                     {% if planting.image_url %}
-                        <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
-                        </div>
+                      <div class="plant-image" style="text-align:center;">
+                        <img src="{{ planting.image_url }}" alt="{{ planting.crop_name }}" style="max-width:220px; max-height:220px; border-radius:10px; margin:10px 0;" />
+                      </div>
+                    {% elif planting.image and planting.image.url %}
+                      <div class="plant-image" style="text-align:center;">
+                        <img src="{{ planting.image.url }}" alt="{{ planting.crop_name }}" style="max-width:220px; max-height:220px; border-radius:10px; margin:10px 0;" />
+                      </div>
                     {% endif %}
+
                     {% if planting.notes %}
                     <div class="card-notes">
                         <h4>Notes:</h4>
@@ -227,11 +234,17 @@
                         </div>
                         {% endif %}
                     </div>
+
                     {% if planting.image_url %}
-                        <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
-                        </div>
+                      <div class="plant-image" style="text-align:center;">
+                        <img src="{{ planting.image_url }}" alt="{{ planting.crop_name }}" style="max-width:220px; max-height:220px; border-radius:10px; margin:10px 0;" />
+                      </div>
+                    {% elif planting.image and planting.image.url %}
+                      <div class="plant-image" style="text-align:center;">
+                        <img src="{{ planting.image.url }}" alt="{{ planting.crop_name }}" style="max-width:220px; max-height:220px; border-radius:10px; margin:10px 0;" />
+                      </div>
                     {% endif %}
+
                     {% if planting.notes %}
                     <div class="card-notes">
                         <h4>Notes:</h4>
@@ -274,11 +287,17 @@
                         </div>
                         {% endif %}
                     </div>
+
                     {% if planting.image_url %}
-                        <div style="text-align:center;">
-                            <img src="{{ planting.image_url }}" alt="Planting Image" style="max-width: 220px; max-height: 220px; margin: 10px 0; border-radius: 10px;" />
-                        </div>
+                      <div class="plant-image" style="text-align:center;">
+                        <img src="{{ planting.image_url }}" alt="{{ planting.crop_name }}" style="max-width:220px; max-height:220px; border-radius:10px; margin:10px 0;" />
+                      </div>
+                    {% elif planting.image and planting.image.url %}
+                      <div class="plant-image" style="text-align:center;">
+                        <img src="{{ planting.image.url }}" alt="{{ planting.crop_name }}" style="max-width:220px; max-height:220px; border-radius:10px; margin:10px 0;" />
+                      </div>
                     {% endif %}
+
                     {% if planting.notes %}
                     <div class="card-notes">
                         <h4>Notes:</h4>
@@ -296,7 +315,7 @@
     <footer class="footer">Sow, Grow, Crop.</footer>
 
 <!-- Dashboard Modal -->
-<div id="dashboard-modal" class="modal-overlay">
+<div id="dashboard-modal" class="modal-overlay" aria-hidden="true">
     <div class="modal-content" style="max-width: 620px; border-radius:16px; box-shadow: 0 18px 45px rgba(0,0,0,0.6); background: radial-gradient(circle at top left, rgba(92,184,92,0.35), rgba(15,23,42,0.95));">
         <button class="modal-close" onclick="closeDashboard()">&times;</button>
         <h2 style="color: var(--primary-color); margin: 0 0 6px 0;">Dashboard Overview</h2>
@@ -347,8 +366,6 @@
             </div>
         </div>
     </div>
-        </div>
-    </div>
 </div>
 
 <!-- Notification Modal -->
@@ -359,7 +376,6 @@
         <p>Upcoming harvest!</p>
     </div>
 </div>
-
 
     <!-- Details modal for plantings -->
     <div id="details-modal" class="modal-overlay" aria-hidden="true">
@@ -417,7 +433,7 @@
             setTimeOfDay(); setWeather(); setBackground();
             setInterval(setTimeOfDay, 5 * 60 * 1000); setInterval(setWeather, 2 * 60 * 1000); setInterval(setBackground, 10 * 60 * 1000);
 
-            // Header menu toggle (fixed null error)
+            // Header menu toggle (defensive - elements may not exist)
             const menuToggle = document.getElementById('menu-toggle');
             const menuList = document.getElementById('menu-list');
             if (menuToggle && menuList) {
@@ -425,10 +441,8 @@
                     e.stopPropagation();
                     menuList.style.display = menuList.style.display === 'block' ? 'none' : 'block';
                 });
-                document.addEventListener('click', () => menuList.style.display = 'none');
+                document.addEventListener('click', () => { if (menuList) menuList.style.display = 'none'; });
             }
-
-            document.addEventListener('click', () => menuList.style.display = 'none');
 
             // Modal: planting details
             const modal = document.getElementById('details-modal');
@@ -437,6 +451,7 @@
             const modalStepsList = document.getElementById('modal-steps-list');
             const closeModalBtn = document.getElementById('modal-close-btn');
 
+            // Attach planting-card click handlers
             document.querySelectorAll('.planting-card').forEach(card => {
                 card.addEventListener('click', () => {
                     const title = card.querySelector('h3') ? card.querySelector('h3').textContent : 'Details';
@@ -451,8 +466,12 @@
                     modal.setAttribute('aria-hidden', 'false');
                 });
             });
-            closeModalBtn.addEventListener('click', () => { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); });
-            modal.addEventListener('click', (event) => { if (event.target === modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); } });
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', () => { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); });
+            }
+            if (modal) {
+                modal.addEventListener('click', (event) => { if (event.target === modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); } });
+            }
 
             // Profile modal logic
             const profileModal = document.getElementById('profile-modal');
@@ -460,19 +479,20 @@
             const profileClose = document.getElementById('profile-modal-close');
             if (profileIcon) profileIcon.addEventListener('click', (e) => { e.stopPropagation(); profileModal.style.display = 'flex'; profileModal.setAttribute('aria-hidden','false'); });
             if (profileClose) profileClose.addEventListener('click', () => { profileModal.style.display = 'none'; profileModal.setAttribute('aria-hidden','true'); });
-            profileModal.addEventListener('click', (event) => { if (event.target === profileModal) { profileModal.style.display = 'none'; profileModal.setAttribute('aria-hidden','true'); } });
+            if (profileModal) {
+                profileModal.addEventListener('click', (event) => { if (event.target === profileModal) { profileModal.style.display = 'none'; profileModal.setAttribute('aria-hidden','true'); } });
+            }
 
-            // Avatar fallback: if no image, show initials
-            const avatar = document.getElementById('header-avatar');
-            const img = avatar ? avatar.querySelector('img') : null;
+            // Avatar fallback: if no image, show initials (safe selector)
+            const avatarEl = document.getElementById('profile-icon');
+            const avatarImg = avatarEl ? avatarEl.querySelector('img') : null;
             function serverInitials() {
-                // Django template will inject one-letter fallback if no image; if more control needed, compute initials server-side
                 return ("{{ user.get_full_name|default:user.username|slice:':2' }}").toUpperCase();
             }
-            if (img) {
-                img.addEventListener('error', () => { if (avatar) avatar.textContent = serverInitials(); });
+            if (avatarImg) {
+                avatarImg.addEventListener('error', () => { if (avatarEl) avatarEl.textContent = serverInitials(); });
             } else {
-                if (avatar && avatar.textContent.trim().length === 0) avatar.textContent = serverInitials();
+                if (avatarEl && avatarEl.textContent.trim().length === 0) avatarEl.textContent = serverInitials();
             }
 
             // Allow Esc to close modals
@@ -494,65 +514,67 @@
                 }
             });
 
-        });
-    // Dashboard & notification modal logic
-const dashboardBtn = document.getElementById('dashboard-btn');
-if (dashboardBtn) {
-    dashboardBtn.addEventListener('click', () => {
-        document.getElementById('dashboard-modal').style.display = 'flex';
-    });
-}
-
-// Notification toggle function
-let notificationsEnabled = {{ notifications_enabled|yesno:"true,false" }};
-
-async function toggleNotifications() {
-    const newState = !notificationsEnabled;
-    
-    try {
-        const response = await fetch('{% url "toggle_notifications" %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': '{{ csrf_token }}'
-            },
-            body: JSON.stringify({ enabled: newState })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            notificationsEnabled = newState;
-            const btn = document.getElementById('notification-btn');
-            if (btn) {
-                btn.textContent = newState ? '🔔' : '🔕';
-                btn.title = newState ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
+            // Hook dashboard open button (safe - element exists in this template)
+            const dashboardBtnLocal = document.getElementById('dashboard-btn');
+            if (dashboardBtnLocal) {
+                dashboardBtnLocal.addEventListener('click', () => {
+                    const dashModal = document.getElementById('dashboard-modal');
+                    if (dashModal) dashModal.style.display = 'flex';
+                });
             }
-            
-            // Show success message
-            alert(newState ? '✓ Notifications enabled! You will receive harvest reminders via email.' : 'Notifications disabled. You will no longer receive reminders.');
-        } else {
-            alert('Error: ' + (data.error || 'Failed to update notification preference'));
+        });
+
+    // Notification functions and global handlers (outside DOMContentLoaded so URLs/templates vars available)
+    let notificationsEnabled = {{ notifications_enabled|yesno:"true,false" }};
+
+    async function toggleNotifications() {
+        const newState = !notificationsEnabled;
+
+        try {
+            const response = await fetch('{% url "toggle_notifications" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({ enabled: newState })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                notificationsEnabled = newState;
+                const btn = document.getElementById('notification-btn');
+                if (btn) {
+                    btn.textContent = newState ? '🔔' : '🔕';
+                    btn.title = newState ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
+                }
+
+                // Small user feedback (could be replaced with a nicer toast)
+                alert(newState ? '✓ Notifications enabled! You will receive harvest reminders via email.' : 'Notifications disabled. You will no longer receive reminders.');
+            } else {
+                alert('Error: ' + (data.error || 'Failed to update notification preference'));
+            }
+        } catch (error) {
+            console.error('Error toggling notifications:', error);
+            alert('Error: Failed to update notification preference. Please try again.');
         }
-    } catch (error) {
-        console.error('Error toggling notifications:', error);
-        alert('Error: Failed to update notification preference. Please try again.');
     }
-}
 
-const notificationBtn = document.getElementById('notification-btn');
-if (notificationBtn) {
-    notificationBtn.addEventListener('click', toggleNotifications);
-    // Set initial tooltip
-    notificationBtn.title = notificationsEnabled ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
-}
+    const notificationBtn = document.getElementById('notification-btn');
+    if (notificationBtn) {
+        notificationBtn.addEventListener('click', toggleNotifications);
+        notificationBtn.title = notificationsEnabled ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
+    }
 
-function closeDashboard() {
-    document.getElementById('dashboard-modal').style.display = 'none';
-}
-function closeNotification() {
-    document.getElementById('notification-modal').style.display = 'none';
-}
+    function closeDashboard() {
+        const dm = document.getElementById('dashboard-modal');
+        if (dm) dm.style.display = 'none';
+    }
+    function closeNotification() {
+        const nm = document.getElementById('notification-modal');
+        if (nm) nm.style.display = 'none';
+    }
 </script>
 </body>
 </html>
