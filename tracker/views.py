@@ -220,7 +220,7 @@ def add_planting_view(request):
 def save_planting(request):
     """
     Save planting:
-     - upload image to S3 (if provided) and set image_url
+     - upload image to S3 (if provided) and set image_url (public URL)
      - resolve username (table PK) and a stable user_id (Cognito sub or django_<pk>)
      - persist planting to DynamoDB (including username and user_id)
      - always save to session for immediate UI
@@ -236,15 +236,15 @@ def save_planting(request):
 
     crop_name = request.POST.get('crop_name')
     planting_date_str = request.POST.get('planting_date')
-    # fixed quoting here: use double quotes for outer f-string so inner strftime uses single quotes
+    # fixed quoting for strftime
     batch_id = request.POST.get('batch_id', f"batch-{_date.today().strftime('%Y%m%d')}")
     notes = request.POST.get('notes', '')
 
     # Lazy helpers
     from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token, save_planting_to_dynamodb
     from .s3_helper import upload_planting_image
-    from .views_helpers import load_plant_data  # if you have a helper; otherwise use existing load_plant_data
-    # If load_plant_data is in this module already, remove the import above.
+    # load_plant_data is defined earlier in this views.py file
+    # from .views_helpers import load_plant_data  <- removed (caused ModuleNotFoundError)
 
     # Resolve stable user id (Cognito sub or django_<pk>) and username (users table PK)
     user_id = None
@@ -257,19 +257,19 @@ def save_planting(request):
     except Exception:
         logger.exception("Error extracting user identity")
 
-    # As a fallback, use Django authenticated user
+    # Fallback to Django auth details if available
     if not username and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
         username = getattr(request.user, 'username', None)
     if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
         user_id = f"django_{getattr(request.user, 'pk', '')}"
 
-    # Image upload
+    # Image upload -> returns public URL if s3_helper uses public-read, otherwise presigned URL
     image_url = ""
     if 'image' in request.FILES and request.FILES['image'].name:
         try:
             upload_owner = user_id or username or "anonymous"
             image_url = upload_planting_image(request.FILES['image'], upload_owner)
-            logger.info("upload_planting_image -> %s", image_url)
+            logger.info("upload_planting_image returned: %s", image_url)
         except Exception:
             logger.exception("Image upload failed")
 
@@ -285,12 +285,12 @@ def save_planting(request):
     calculate = _get_calculate_plan()
     calculated_plan = calculate(crop_name, planting_date, plant_data)
 
-    # Convert internal due_date values to ISO strings for storage
+    # Convert due_date in plan to ISO strings for storage
     for task in calculated_plan:
         if 'due_date' in task and isinstance(task['due_date'], _date):
             task['due_date'] = task['due_date'].isoformat()
 
-    # Compose planting dict with both username and stable user_id
+    # Compose planting dict; include both identifiers
     new_planting = {
         'crop_name': crop_name,
         'planting_date': planting_date.isoformat(),
@@ -298,31 +298,31 @@ def save_planting(request):
         'notes': notes,
         'plan': calculated_plan,
         'image_url': image_url,
-        'user_id': user_id or (f"django_{getattr(request.user,'pk','')}" if getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False) else None),
-        'username': username or (getattr(request.user, 'username', None) if getattr(request, 'user', None) else None)
+        'user_id': user_id or (f"django_{getattr(request.user, 'pk', '')}" if getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False) else None),
+        'username': username or (getattr(request.user, 'username', None) if getattr(request, 'user', None) else None),
     }
 
-    # Ensure a local planting_id for session immediacy
+    # Ensure a planting_id for session immediacy
     local_planting_id = str(uuid.uuid4())
     new_planting['planting_id'] = new_planting.get('planting_id') or local_planting_id
 
-    # Persist to Dynamo if possible (best-effort)
+    # Persist to Dynamo (best-effort). save_planting_to_dynamodb should return planting_id
     try:
-        persisted_id = save_planting_to_dynamodb(new_planting)
-        if persisted_id:
-            new_planting['planting_id'] = persisted_id
-            logger.info('Saved planting %s to DynamoDB', persisted_id)
+        returned_id = save_planting_to_dynamodb(new_planting)
+        if returned_id:
+            new_planting['planting_id'] = returned_id
+            logger.info('Saved planting %s to DynamoDB', returned_id)
         else:
-            logger.warning('save_planting_to_dynamodb returned falsy; saved to session only')
+            logger.warning('save_planting_to_dynamodb returned falsy; using local id %s', local_planting_id)
     except Exception:
-        logger.exception('Failed saving planting to DynamoDB, continuing with session-only')
+        logger.exception('Failed to save planting to DynamoDB; continuing with session-only')
 
-    # Save to session for UI immediacy
+    # Always save to session so it appears immediately
     user_plantings = request.session.get('user_plantings', [])
     user_plantings.append(new_planting)
     request.session['user_plantings'] = user_plantings
     request.session.modified = True
-    logger.info('Saved planting to session (total=%d)', len(user_plantings))
+    logger.info('Saved planting to session: total=%d', len(user_plantings))
 
     return redirect('index')
 
