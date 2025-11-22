@@ -24,11 +24,12 @@ class CognitoTokenMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Skip all auth/session checks for callback endpoint to avoid triggering DB access
+        # Skip all auth/session checks for auth endpoints to avoid triggering DB access or redirect loops
         # This must be the VERY FIRST check - before any request.user or request.session access
         # This prevents AuthenticationMiddleware from trying to load session from database
-        if request.path.startswith("/auth/callback/"):
-            logger.debug('CognitoTokenMiddleware: Skipping callback path: %s', request.path)
+        # Also prevents redirect loops when user is on login page without tokens
+        if request.path.startswith("/auth/callback/") or request.path.startswith("/auth/login/"):
+            logger.debug('CognitoTokenMiddleware: Skipping auth path: %s', request.path)
             # Skip loading user/session completely - return immediately
             return self.get_response(request)
         
