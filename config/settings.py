@@ -24,7 +24,7 @@ if IS_PRODUCTION:
         allowed_hosts_list.append('3.235.196.246.nip.io')
     ALLOWED_HOSTS = allowed_hosts_list
 else:
-    ALLOWED_HOSTS = ['3.235.196.246.nip.io', 'localhost', '127.0.0.1']
+    ALLOWED_HOSTS = ['3.235.196.246.nip.io', '3.235.196.246', 'localhost', '127.0.0.1']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
