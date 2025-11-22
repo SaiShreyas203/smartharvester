@@ -99,6 +99,10 @@ def index(request):
             planting = planting_data.copy() # Work with a copy
             planting['id'] = i
 
+            # Ensure image_url is preserved (for display)
+            if 'image_url' not in planting:
+                planting['image_url'] = planting_data.get('image_url', '')
+
             # Convert the main planting_date
             if 'planting_date' in planting:
                 planting['planting_date'] = date.fromisoformat(planting['planting_date'])
@@ -222,21 +226,45 @@ def save_planting(request):
     return redirect('index')
 
 def edit_planting_view(request, planting_id):
+    """Edit planting view - loads from DynamoDB or session (like original simple code)"""
     from .dynamodb_helper import load_user_plantings, get_user_id_from_token
     
     user_id = get_user_id_from_token(request)
-    if not user_id:
-        logger.error('Cannot edit planting: user not authenticated')
-        return redirect('index')
     
-    user_plantings = load_user_plantings(user_id)
+    # Load plantings (try DynamoDB first, then session - like index view)
+    user_plantings = []
+    if user_id:
+        try:
+            user_plantings = load_user_plantings(user_id)
+        except Exception as e:
+            logger.exception('Error loading from DynamoDB: %s', e)
+    
+    # If no DynamoDB data, use session
+    if not user_plantings:
+        user_plantings = request.session.get('user_plantings', [])
+    
+    # Check if planting_id is valid
+    if planting_id >= len(user_plantings):
+        logger.error('Planting index %d out of range (total: %d)', planting_id, len(user_plantings))
+        return redirect('index')
     
     try:
         planting_to_edit = user_plantings[planting_id].copy()
         planting_to_edit['id'] = planting_id
-        # This conversion is for the form value, which is correct
-        planting_to_edit['planting_date_str'] = planting_to_edit['planting_date']
-    except (IndexError, KeyError):
+        
+        # Convert planting_date to string for form (if it's a date object)
+        if 'planting_date' in planting_to_edit:
+            planting_date = planting_to_edit['planting_date']
+            if isinstance(planting_date, date):
+                planting_to_edit['planting_date_str'] = planting_date.isoformat()
+            elif isinstance(planting_date, str):
+                planting_to_edit['planting_date_str'] = planting_date
+            else:
+                planting_to_edit['planting_date_str'] = str(planting_date)
+        else:
+            planting_to_edit['planting_date_str'] = ''
+    except (IndexError, KeyError) as e:
+        logger.exception('Error getting planting to edit: %s', e)
         return redirect('index')
 
     plant_data = load_plant_data()
@@ -248,43 +276,52 @@ def edit_planting_view(request, planting_id):
     return render(request, 'tracker/edit.html', context)
 
 def update_planting(request, planting_id):
+    """Update planting - works with both DynamoDB and session (like original simple code)"""
     if request.method == 'POST':
         from .dynamodb_helper import load_user_plantings, save_planting_to_dynamodb, get_user_id_from_token
+        from .s3_helper import upload_planting_image, delete_image_from_s3
         
         user_id = get_user_id_from_token(request)
-        if not user_id:
-            logger.error('Cannot update planting: user not authenticated')
-            return redirect('index')
         
-        user_plantings = load_user_plantings(user_id)
+        # Load plantings (try DynamoDB first, then session)
+        user_plantings = []
+        if user_id:
+            try:
+                user_plantings = load_user_plantings(user_id)
+            except Exception as e:
+                logger.exception('Error loading from DynamoDB: %s', e)
         
-        # planting_id is the index in the list
+        # If no DynamoDB data, use session
+        if not user_plantings:
+            user_plantings = request.session.get('user_plantings', [])
+        
+        # Check if planting_id is valid
         if planting_id >= len(user_plantings):
+            logger.error('Planting index %d out of range (total: %d)', planting_id, len(user_plantings))
             return redirect('index')
         
-        # Get the actual planting_id from the database
-        actual_planting_id = user_plantings[planting_id].get('planting_id')
-        if not actual_planting_id:
-            logger.error('Planting at index %d has no planting_id', planting_id)
-            return redirect('index')
+        # Get the existing planting
+        existing_planting = user_plantings[planting_id]
+        actual_planting_id = existing_planting.get('planting_id')
 
         crop_name = request.POST.get('crop_name')
         planting_date_str = request.POST.get('planting_date')
         batch_id = request.POST.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
         notes = request.POST.get('notes', '')
 
-        image_url = user_plantings[planting_id].get('image_url', '')
+        # Handle image upload
+        image_url = existing_planting.get('image_url', '')
         if 'image' in request.FILES and request.FILES['image'].name:
-            # Upload new image to S3 organized by user_id
-            from .s3_helper import upload_planting_image, delete_image_from_s3
-            
             # Delete old image if it exists
             old_image_url = image_url
             if old_image_url:
                 delete_image_from_s3(old_image_url)
             
-            # Upload new image
-            image_url = upload_planting_image(request.FILES['image'], user_id)
+            # Upload new image (if user_id exists)
+            if user_id:
+                image_url = upload_planting_image(request.FILES['image'], user_id)
+            else:
+                logger.warning('Cannot upload image: user not authenticated')
 
         if not crop_name or not planting_date_str:
             return redirect('index')
@@ -300,9 +337,8 @@ def update_planting(request, planting_id):
             if 'due_date' in task and isinstance(task['due_date'], date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        # Update planting with actual planting_id
+        # Update planting
         updated_planting = {
-            'planting_id': actual_planting_id,
             'crop_name': crop_name,
             'planting_date': planting_date.isoformat(),
             'batch_id': batch_id,
@@ -311,36 +347,52 @@ def update_planting(request, planting_id):
             'image_url': image_url
         }
         
-        # Save updated planting to DynamoDB
-        if save_planting_to_dynamodb(user_id, updated_planting):
-            logger.info('✓ Successfully updated planting %s in DynamoDB for user %s', actual_planting_id, user_id)
-            # Update session
-            user_plantings[planting_id] = updated_planting
-            request.session['user_plantings'] = user_plantings
-            request.session.modified = True
-        else:
-            logger.error('Failed to update planting in DynamoDB for user %s', user_id)
+        # Preserve planting_id if it exists
+        if actual_planting_id:
+            updated_planting['planting_id'] = actual_planting_id
+        
+        # Save to DynamoDB if user_id exists
+        if user_id and actual_planting_id:
+            if save_planting_to_dynamodb(user_id, updated_planting):
+                logger.info('✓ Successfully updated planting %s in DynamoDB', actual_planting_id)
+            else:
+                logger.warning('Failed to update in DynamoDB, updating session only')
+        
+        # Always update session (like original simple code)
+        user_plantings[planting_id] = updated_planting
+        request.session['user_plantings'] = user_plantings
+        request.session.modified = True
+        logger.info('Updated planting at index %d in session', planting_id)
 
     return redirect('index')
 
 def delete_planting(request, planting_id):
+    """Delete planting - works with both DynamoDB and session (like original simple code)"""
     if request.method == 'POST':
         from .dynamodb_helper import load_user_plantings, delete_planting_from_dynamodb, get_user_id_from_token
         from .s3_helper import delete_image_from_s3
         
         user_id = get_user_id_from_token(request)
-        if not user_id:
-            logger.error('Cannot delete planting: user not authenticated')
+        
+        # Load plantings (try DynamoDB first, then session)
+        user_plantings = []
+        if user_id:
+            try:
+                user_plantings = load_user_plantings(user_id)
+            except Exception as e:
+                logger.exception('Error loading from DynamoDB: %s', e)
+        
+        # If no DynamoDB data, use session
+        if not user_plantings:
+            user_plantings = request.session.get('user_plantings', [])
+        
+        # Check if planting_id is valid
+        if planting_id >= len(user_plantings):
+            logger.error('Planting index %d out of range (total: %d)', planting_id, len(user_plantings))
             return redirect('index')
         
-        user_plantings = load_user_plantings(user_id)
-        
         try:
-            # planting_id is the index in the list
-            if planting_id >= len(user_plantings):
-                return redirect('index')
-            
-            # Get the actual planting_id from the database
+            # Get the planting to delete
             planting_to_delete = user_plantings[planting_id]
             actual_planting_id = planting_to_delete.get('planting_id')
             image_url = planting_to_delete.get('image_url', '')
@@ -350,20 +402,22 @@ def delete_planting(request, planting_id):
                 delete_image_from_s3(image_url)
                 logger.info('Deleted image from S3: %s', image_url)
             
-            # Delete planting from DynamoDB using actual planting_id
-            if actual_planting_id:
+            # Delete from DynamoDB if user_id and planting_id exist
+            if user_id and actual_planting_id:
                 if delete_planting_from_dynamodb(actual_planting_id):
-                    logger.info('✓ Successfully deleted planting %s from DynamoDB for user %s', actual_planting_id, user_id)
-                    # Update session
-                    user_plantings.pop(planting_id)
-                    request.session['user_plantings'] = user_plantings
-                    request.session.modified = True
+                    logger.info('✓ Successfully deleted planting %s from DynamoDB', actual_planting_id)
                 else:
-                    logger.error('✗ Failed to delete planting from DynamoDB for user %s', user_id)
-            else:
-                logger.error('Planting at index %d has no planting_id', planting_id)
+                    logger.warning('Failed to delete from DynamoDB, deleting from session only')
+            
+            # Always delete from session (like original simple code)
+            user_plantings.pop(planting_id)
+            request.session['user_plantings'] = user_plantings
+            request.session.modified = True
+            logger.info('Deleted planting at index %d from session', planting_id)
+            
         except (IndexError, KeyError) as e:
-            logger.warning('Error deleting planting: %s', e)
+            logger.exception('Error deleting planting: %s', e)
+    
     return redirect('index')
 
 
