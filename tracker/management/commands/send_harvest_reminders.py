@@ -7,7 +7,7 @@ Usage:
 """
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from tracker.dynamodb_helper import load_user_plantings, get_dynamodb_client
+from tracker.dynamodb_helper import load_user_plantings
 from tracker.sns_helper import send_harvest_reminder, subscribe_email_to_topic
 from datetime import date, timedelta
 import logging
@@ -38,12 +38,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'Starting harvest reminder check (days={days}, dry_run={dry_run})'))
         
         try:
-            # Get DynamoDB client
-            dynamodb = get_dynamodb_client()
-            
-            # Get all users from DynamoDB
-            from tracker.dynamodb_helper import DYNAMODB_USERS_TABLE_NAME
-            users_response = dynamodb.scan(TableName=DYNAMODB_USERS_TABLE_NAME)
+            # Get DynamoDB resource
+            from tracker.dynamodb_helper import dynamo_resource, DYNAMO_USERS_TABLE
+            table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
+            users_response = table.scan()
             users = users_response.get('Items', [])
             
             self.stdout.write(f'Found {len(users)} users in DynamoDB')
@@ -56,19 +54,17 @@ class Command(BaseCommand):
             
             for user_item in users:
                 try:
-                    # Extract user info from DynamoDB item
-                    username = user_item.get('username', {}).get('S', '')
-                    email = user_item.get('email', {}).get('S', '')
-                    user_id = user_item.get('user_id', {}).get('S', '') or username
+                    # Extract user info from DynamoDB item (using resource format, not client format)
+                    username = user_item.get('username', '')
+                    email = user_item.get('email', '')
+                    user_id = user_item.get('user_id', '') or username
                     
                     if not email:
                         self.stdout.write(self.style.WARNING(f'  Skipping user {username}: no email'))
                         continue
                     
                     # Check if notifications are enabled (default to True if not set)
-                    notifications_enabled = user_item.get('notifications_enabled', {}).get('BOOL', True)
-                    if isinstance(notifications_enabled, dict):
-                        notifications_enabled = notifications_enabled.get('BOOL', True)
+                    notifications_enabled = user_item.get('notifications_enabled', True)
                     
                     if not notifications_enabled:
                         self.stdout.write(self.style.WARNING(f'  Skipping user {username}: notifications disabled'))
