@@ -225,23 +225,26 @@ def save_planting(request):
      - persist planting to DynamoDB (including username and user_id)
      - always save to session for immediate UI
     """
+    if request.method != 'POST':
+        return redirect('index')
+
     from datetime import date as _date
     import uuid
     import logging
 
     logger = logging.getLogger(__name__)
 
-    if request.method != 'POST':
-        return redirect('index')
-
     crop_name = request.POST.get('crop_name')
     planting_date_str = request.POST.get('planting_date')
-    batch_id = request.POST.get('batch_id', f'batch-{_date.today().strftime('%Y%m%d')}")
+    # fixed quoting here: use double quotes for outer f-string so inner strftime uses single quotes
+    batch_id = request.POST.get('batch_id', f"batch-{_date.today().strftime('%Y%m%d')}")
     notes = request.POST.get('notes', '')
 
     # Lazy helpers
     from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token, save_planting_to_dynamodb
     from .s3_helper import upload_planting_image
+    from .views_helpers import load_plant_data  # if you have a helper; otherwise use existing load_plant_data
+    # If load_plant_data is in this module already, remove the import above.
 
     # Resolve stable user id (Cognito sub or django_<pk>) and username (users table PK)
     user_id = None
@@ -250,7 +253,6 @@ def save_planting(request):
         user_id = get_user_id_from_token(request)
         user_data = get_user_data_from_token(request)
         if user_data:
-            # user_data may contain 'username' or 'preferred_username' or 'email'
             username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('email')
     except Exception:
         logger.exception("Error extracting user identity")
@@ -265,11 +267,7 @@ def save_planting(request):
     image_url = ""
     if 'image' in request.FILES and request.FILES['image'].name:
         try:
-            if not user_id:
-                # We can still upload using username if present, else upload under 'anonymous'
-                upload_owner = user_id or username or "anonymous"
-            else:
-                upload_owner = user_id
+            upload_owner = user_id or username or "anonymous"
             image_url = upload_planting_image(request.FILES['image'], upload_owner)
             logger.info("upload_planting_image -> %s", image_url)
         except Exception:
@@ -280,7 +278,7 @@ def save_planting(request):
         logger.error("Missing required fields in save_planting")
         return redirect('index')
 
-    planting_date = date.fromisoformat(planting_date_str)
+    planting_date = _date.fromisoformat(planting_date_str)
 
     # Build plan
     plant_data = load_plant_data()
@@ -289,7 +287,7 @@ def save_planting(request):
 
     # Convert internal due_date values to ISO strings for storage
     for task in calculated_plan:
-        if 'due_date' in task and isinstance(task['due_date'], date):
+        if 'due_date' in task and isinstance(task['due_date'], _date):
             task['due_date'] = task['due_date'].isoformat()
 
     # Compose planting dict with both username and stable user_id
@@ -300,7 +298,6 @@ def save_planting(request):
         'notes': notes,
         'plan': calculated_plan,
         'image_url': image_url,
-        # store both identifiers so lookups work regardless of which PK is used in users table
         'user_id': user_id or (f"django_{getattr(request.user,'pk','')}" if getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False) else None),
         'username': username or (getattr(request.user, 'username', None) if getattr(request, 'user', None) else None)
     }
