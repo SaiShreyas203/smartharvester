@@ -672,12 +672,35 @@ def profile(request):
     return render(request, 'profile.html')
 
 def login_view(request):
-    # Basic example; improve as needed!
+    """
+    Login view - shows login page with Cognito login option.
+    If user already has tokens, redirects to home page.
+    Supports both Cognito login (recommended) and traditional Django login (fallback).
+    """
+    from .dynamodb_helper import get_user_id_from_token
+    
+    # Check if user is already authenticated (has Cognito tokens)
+    user_id = get_user_id_from_token(request)
+    if user_id:
+        logger.info('User already authenticated (user_id: %s), redirecting to home', user_id)
+        return redirect('index')
+    
+    # If POST request (traditional Django login), try to authenticate
     if request.method == 'POST':
-        username = request.POST['username']
-        password = request.POST['password']
-        user = authenticate(request, username=username, password=password)
-        if user is not None:
-            login(request, user)
-            return redirect('index')  # or your homepage
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        if username and password:
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                login(request, user)
+                logger.info('User %s logged in via Django auth', username)
+                return redirect('index')
+            else:
+                # Failed authentication - show error
+                from django.contrib.auth.forms import AuthenticationForm
+                form = AuthenticationForm()
+                form.errors['__all__'] = form.error_messages['invalid_login']
+                return render(request, 'registration/login.html', {'form': form})
+    
+    # For GET requests, show login page with Cognito login option
     return render(request, 'registration/login.html')
