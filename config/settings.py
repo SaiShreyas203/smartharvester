@@ -135,6 +135,11 @@ else:
         
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# --- SESSION CONFIGURATION ---
+# Use signed cookies for sessions to avoid database access during OAuth callbacks
+# This allows the callback to store tokens in request.session without PostgreSQL
+SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
+
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 LOGIN_URL = '/auth/login/'
