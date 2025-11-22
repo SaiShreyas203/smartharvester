@@ -19,7 +19,10 @@ COGNITO_REDIRECT_URI = os.getenv("COGNITO_REDIRECT_URI")
 COGNITO_REGION = os.getenv("COGNITO_REGION")
 
 if IS_PRODUCTION:
-    ALLOWED_HOSTS = [os.environ.get('EB_HOSTNAME', '.localhost')]
+    allowed_hosts_list = [os.environ.get('EB_HOSTNAME', '.localhost')]
+    if '3.235.196.246.nip.io' not in allowed_hosts_list:
+        allowed_hosts_list.append('3.235.196.246.nip.io')
+    ALLOWED_HOSTS = allowed_hosts_list
 else:
     ALLOWED_HOSTS = ['3.235.196.246.nip.io', 'localhost', '127.0.0.1']
 
@@ -131,14 +134,3 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 LOGIN_URL = '/auth/login/'
-
-# --- AWS COGNITO HOSTED UI SETTINGS ---
-# Configure these via environment variables in each environment.
-COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', 'us-east-1_HGEM2vRNI')
-COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID', '')
-COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET', '')
-COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
-# Domain for the hosted UI, e.g. 'your-domain-prefix.auth.us-east-1.amazoncognito.com'
-COGNITO_DOMAIN = os.environ.get('COGNITO_DOMAIN', '')
-# Redirect URI that Cognito will call after authentication. Set this in your app client too.
-COGNITO_REDIRECT_URI = os.environ.get('COGNITO_REDIRECT_URI', 'http://localhost:8000/auth/callback/')

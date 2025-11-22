@@ -239,41 +239,38 @@ def cognito_login(request):
 
 
 def cognito_callback(request):
-    """Handle callback from Cognito Hosted UI, exchange code for tokens,
-    verify ID token, and log the user into Django.
-    """
-    from .cognito import exchange_code_for_tokens, verify_id_token
-    from django.contrib.auth import login
-    from django.contrib.auth.models import User
+    """Handle callback from Cognito Hosted UI, exchange code for tokens."""
+    import requests
+    from django.http import HttpResponse
 
     code = request.GET.get('code')
-    state = request.GET.get('state')
     if not code:
-        return redirect('login')
-    try:
-        token_resp = exchange_code_for_tokens(code)
-        id_token = token_resp.get('id_token')
-        if not id_token:
-            raise ValueError('No id_token in token response')
-        payload = verify_id_token(id_token)
-        # Map Cognito identity to Django user
-        username = payload.get('email') or payload.get('sub')
-        if not username:
-            username = payload.get('sub')
-        user, created = User.objects.get_or_create(username=username, defaults={
-            'email': payload.get('email', ''),
-            'first_name': payload.get('given_name', ''),
-            'last_name': payload.get('family_name', ''),
-        })
-        # Optionally update profile fields here
-        user.backend = 'django.contrib.auth.backends.ModelBackend'
-        login(request, user)
-        # Optionally store tokens in session
-        request.session['cognito_tokens'] = token_resp
-        return redirect('/')
-    except Exception as e:
-        logger.exception('Cognito callback failure: %s', e)
-        return redirect('login')
+        return HttpResponse("No code provided", status=400)
+
+    token_url = f"https://{settings.COGNITO_DOMAIN}/oauth2/token"
+
+    data = {
+        'grant_type': 'authorization_code',
+        'client_id': settings.COGNITO_CLIENT_ID,
+        'code': code,
+        'redirect_uri': settings.COGNITO_REDIRECT_URI
+    }
+
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    response = requests.post(token_url, data=data, headers=headers, auth=(settings.COGNITO_CLIENT_ID, settings.COGNITO_CLIENT_SECRET) if settings.COGNITO_CLIENT_SECRET else None)
+    
+    if response.status_code != 200:
+        return HttpResponse(f"Error fetching tokens: {response.text}", status=response.status_code)
+
+    tokens = response.json()
+    # tokens contain: access_token, id_token, refresh_token
+    request.session['id_token'] = tokens.get('id_token')
+    request.session['access_token'] = tokens.get('access_token')
+    
+    return redirect('/')  # redirect to homepage after login
 
 
 def profile(request):
