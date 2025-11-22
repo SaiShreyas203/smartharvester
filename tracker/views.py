@@ -244,8 +244,11 @@ def cognito_callback(request):
     from django.http import HttpResponse
     from django.db import OperationalError
 
+    logger.info('Cognito callback received for path: %s', request.path)
+    
     code = request.GET.get('code')
     if not code:
+        logger.warning('Cognito callback: No code provided')
         return HttpResponse("No code provided", status=400)
 
     token_url = f"https://{settings.COGNITO_DOMAIN}/oauth2/token"
@@ -272,9 +275,12 @@ def cognito_callback(request):
 
     tokens = response.json()
     # tokens contain: access_token, id_token, refresh_token
+    logger.info('Cognito callback: Tokens received successfully')
+    
     try:
         request.session['id_token'] = tokens.get('id_token')
         request.session['access_token'] = tokens.get('access_token')
+        logger.info('Cognito callback: Tokens saved to session, redirecting to homepage')
     except OperationalError as e:
         logger.exception('Database error saving session: %s', e)
         # Return tokens in response if we can't save to session
@@ -283,6 +289,7 @@ def cognito_callback(request):
         logger.exception('Error saving session: %s', e)
         return HttpResponse(f"Error saving session: {str(e)}", status=500)
     
+    # Redirect to homepage - ensure this doesn't trigger login_required
     return redirect('/')  # redirect to homepage after login
 
 
