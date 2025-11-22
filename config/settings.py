@@ -76,16 +76,21 @@ if IS_PRODUCTION:
         'default': dj_database_url.config(conn_max_age=600)
     }
 else:
+    # Ensure HOST is set to avoid Unix socket connection attempts
+    db_host = os.getenv("DATABASE_HOST")
+    if not db_host or db_host.strip() == '':
+        db_host = 'localhost'
+    
     DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv("DATABASE_NAME"),
-        'USER': os.getenv("DATABASE_USER"),
-        'PASSWORD': os.getenv("DATABASE_PASSWORD"),
-        'HOST': os.getenv("DATABASE_HOST"),
-        'PORT': os.getenv("DATABASE_PORT", "5432"),
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv("DATABASE_NAME"),
+            'USER': os.getenv("DATABASE_USER"),
+            'PASSWORD': os.getenv("DATABASE_PASSWORD"),
+            'HOST': db_host,
+            'PORT': os.getenv("DATABASE_PORT", "5432"),
+        }
     }
-}
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},

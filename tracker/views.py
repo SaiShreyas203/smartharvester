@@ -242,6 +242,7 @@ def cognito_callback(request):
     """Handle callback from Cognito Hosted UI, exchange code for tokens."""
     import requests
     from django.http import HttpResponse
+    from django.db import OperationalError
 
     code = request.GET.get('code')
     if not code:
@@ -260,15 +261,27 @@ def cognito_callback(request):
         'Content-Type': 'application/x-www-form-urlencoded'
     }
 
-    response = requests.post(token_url, data=data, headers=headers, auth=(settings.COGNITO_CLIENT_ID, settings.COGNITO_CLIENT_SECRET) if settings.COGNITO_CLIENT_SECRET else None)
+    try:
+        response = requests.post(token_url, data=data, headers=headers, auth=(settings.COGNITO_CLIENT_ID, settings.COGNITO_CLIENT_SECRET) if settings.COGNITO_CLIENT_SECRET else None)
+    except Exception as e:
+        logger.exception('Error calling Cognito token endpoint: %s', e)
+        return HttpResponse(f"Error fetching tokens: {str(e)}", status=500)
     
     if response.status_code != 200:
         return HttpResponse(f"Error fetching tokens: {response.text}", status=response.status_code)
 
     tokens = response.json()
     # tokens contain: access_token, id_token, refresh_token
-    request.session['id_token'] = tokens.get('id_token')
-    request.session['access_token'] = tokens.get('access_token')
+    try:
+        request.session['id_token'] = tokens.get('id_token')
+        request.session['access_token'] = tokens.get('access_token')
+    except OperationalError as e:
+        logger.exception('Database error saving session: %s', e)
+        # Return tokens in response if we can't save to session
+        return HttpResponse(f"Authentication successful but session save failed. Please check database connection. Tokens received: {bool(tokens.get('id_token'))}", status=503)
+    except Exception as e:
+        logger.exception('Error saving session: %s', e)
+        return HttpResponse(f"Error saving session: {str(e)}", status=500)
     
     return redirect('/')  # redirect to homepage after login
 

@@ -24,27 +24,40 @@ class CognitoTokenMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Only enforce for logged-in users (who previously completed Cognito flow)
-        if request.user.is_authenticated:
-            toks = request.session.get('cognito_tokens')
-            if toks:
-                id_token = toks.get('id_token')
-                if id_token:
-                    try:
-                        verify_id_token(id_token)
-                    except Exception as e:
-                        logger.info('ID token verify failed: %s', e)
-                        # try to refresh
-                        refresh_token = toks.get('refresh_token')
-                        if refresh_token:
-                            try:
-                                new = _refresh_with_refresh_token(refresh_token)
-                                request.session['cognito_tokens'] = new
-                            except Exception:
-                                logger.info('Refresh failed; redirecting to login')
-                                return redirect('cognito_login')
-                        else:
+        # Check if user has Cognito tokens in session (avoid triggering DB access via request.user)
+        # Skip this middleware for the callback endpoint to avoid circular issues
+        if request.path == '/auth/callback/':
+            response = self.get_response(request)
+            return response
+        
+        try:
+            # Check session directly for Cognito tokens (both old and new format)
+            id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+            if id_token:
+                try:
+                    verify_id_token(id_token)
+                except Exception as e:
+                    logger.info('ID token verify failed: %s', e)
+                    # Try to refresh if refresh_token is available
+                    cognito_tokens = request.session.get('cognito_tokens', {})
+                    refresh_token = cognito_tokens.get('refresh_token')
+                    if refresh_token:
+                        try:
+                            new = _refresh_with_refresh_token(refresh_token)
+                            # Update both old and new session formats
+                            request.session['cognito_tokens'] = new
+                            request.session['id_token'] = new.get('id_token')
+                            request.session['access_token'] = new.get('access_token')
+                        except Exception:
+                            logger.info('Refresh failed; redirecting to login')
                             return redirect('cognito_login')
+                    else:
+                        return redirect('cognito_login')
+        except Exception as e:
+            # Handle database connection errors gracefully
+            # If we can't access the session, just continue to the view
+            logger.warning('Middleware session access failed: %s', e)
+        
         response = self.get_response(request)
         return response
 
