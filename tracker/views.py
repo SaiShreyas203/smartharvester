@@ -391,40 +391,78 @@ def edit_planting_view(request, planting_id):
     return render(request, 'tracker/edit.html', context)
 
 
-def upload_planting_image(file_obj, user_id: str, folder: str = "media/planting_images") -> str:
+def update_planting(request, planting_id):
     """
-    Upload Django UploadedFile to S3 and return a public URL.
-
-    Do NOT set ACL here because the bucket enforces 'no ACLs' (BucketOwnerEnforced).
-    Public access is granted by the bucket policy on media/*.
+    Simple handler to update a planting item in DynamoDB.
+    - POST: accepts crop_name, planting_date (ISO), batch_id, notes and optional image file 'image'.
+      If an image is provided, it will be uploaded and image_url saved.
+    - GET: redirects to index (you can extend to render an edit form if needed).
     """
-    import os
-    from urllib.parse import quote_plus
-    import boto3
+    import logging
+    from django.shortcuts import redirect
     from botocore.exceptions import ClientError
+    from .dynamodb_helper import dynamo_resource, DYNAMO_PLANTINGS_TABLE
+    from .s3_helper import upload_planting_image
 
-    S3_BUCKET = os.getenv("S3_BUCKET", "terratrack-media")
-    AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-    s3 = boto3.client("s3", region_name=AWS_REGION)
+    logger = logging.getLogger(__name__)
 
-    filename = getattr(file_obj, "name", "upload").replace(" ", "_").replace("..", "_")
-    key = f"{folder}/{user_id}/{filename}"
-    content_type = getattr(file_obj, "content_type", "application/octet-stream")
+    # Only accept POST updates
+    if request.method != "POST":
+        return redirect("index")
+
+    table = dynamo_resource().Table(DYNAMO_PLANTINGS_TABLE)
+
+    # Build update expression pieces dynamically
+    update_parts = []
+    expr_attr_names = {}
+    expr_attr_values = {}
+
+    def add_update(attr_name, value):
+        placeholder_name = f"#{attr_name}"
+        placeholder_value = f":{attr_name}"
+        update_parts.append(f"{placeholder_name} = {placeholder_value}")
+        expr_attr_names[placeholder_name] = attr_name
+        expr_attr_values[placeholder_value] = value
+
+    # Fields that can be updated via the form
+    for field in ("crop_name", "planting_date", "batch_id", "notes"):
+        v = request.POST.get(field)
+        if v is not None:
+            # normalize empty strings to None? keep as-is to allow clearing
+            add_update(field, v)
+
+    # Optional image upload handling
+    if "image" in request.FILES and request.FILES["image"].name:
+        try:
+            # determine an upload owner (prefer an explicit user_id posted or the authenticated user)
+            upload_owner = request.POST.get("user_id")
+            if not upload_owner and hasattr(request, "user") and getattr(request.user, "is_authenticated", False):
+                upload_owner = f"django_{getattr(request.user,'pk','')}"
+            upload_owner = upload_owner or "anonymous"
+            image_url = upload_planting_image(request.FILES["image"], upload_owner)
+            if image_url:
+                add_update("image_url", image_url)
+        except Exception:
+            logger.exception("Failed to upload image for planting %s", planting_id)
+
+    if not update_parts:
+        # nothing to update
+        return redirect("index")
+
+    update_expr = "SET " + ", ".join(update_parts)
 
     try:
-        try:
-            file_obj.seek(0)
-        except Exception:
-            pass
-        s3.upload_fileobj(file_obj, S3_BUCKET, key, ExtraArgs={"ContentType": content_type})
+        table.update_item(
+            Key={"planting_id": str(planting_id)},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_attr_names,
+            ExpressionAttributeValues=expr_attr_values,
+        )
+        logger.info("Updated planting %s: %s", planting_id, update_parts)
     except ClientError as e:
-        logger.exception("S3 upload failed: %s", e)
-        raise
+        logger.exception("DynamoDB update_item failed for planting %s: %s", planting_id, e)
 
-    encoded_key = quote_plus(key, safe="/")
-    url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{encoded_key}"
-    logger.info("Uploaded file to S3: %s", url)
-    return url
+    return redirect("index")
 
 def delete_planting(request, planting_id):
     """Delete planting - Dynamo and session"""
