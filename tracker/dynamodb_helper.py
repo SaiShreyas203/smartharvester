@@ -224,9 +224,8 @@ def get_user_id_from_token(token_or_request: Union[str, Any]) -> Optional[str]:
 def save_planting_to_dynamodb(planting: Union[Dict[str, Any], object]) -> Optional[str]:
     """
     Save a planting record into the PLANTINGS table.
-    planting can be a dict or an object with attributes.
-    The item MUST include a 'user_id' attribute (stable id used when saving and loading).
-    Returns the planting_id (string) written, or None on error.
+    Accepts dict or model instance. Ensures either user_id or username is present.
+    Returns planting_id string on success, None on failure.
     """
     try:
         if isinstance(planting, dict):
@@ -238,7 +237,8 @@ def save_planting_to_dynamodb(planting: Union[Dict[str, Any], object]) -> Option
             planting_id = str(getattr(obj, "pk", None) or getattr(obj, "id", None) or uuid.uuid4())
             item = {
                 "planting_id": planting_id,
-                "user_id": str(getattr(obj, "user_id", None) or getattr(getattr(obj, "user", None), "pk", None) or ""),
+                "user_id": str(getattr(obj, "user_id", None) or ""),
+                "username": getattr(obj, "username", None) or getattr(getattr(obj, "user", None), "username", None),
                 "crop_name": getattr(obj, "crop_name", None),
                 "planting_date": getattr(obj, "planting_date").isoformat() if getattr(obj, "planting_date", None) else None,
                 "harvest_date": getattr(obj, "harvest_date").isoformat() if getattr(obj, "harvest_date", None) else None,
@@ -248,18 +248,16 @@ def save_planting_to_dynamodb(planting: Union[Dict[str, Any], object]) -> Option
                 "plan": getattr(obj, "plan", None)
             }
 
-        # Validate presence of user_id so items can be queried
-        user_id = item.get("user_id") or item.get("owner") or item.get("userid") or ""
-        if not user_id:
-            logger.error("save_planting_to_dynamodb: missing user_id - refusing to write item: %s", item)
+        # Validate presence of username or user_id
+        if not item.get("user_id") and not item.get("username"):
+            logger.error("save_planting_to_dynamodb: missing both user_id and username; refusing to write: %s", item)
             return None
-        item["user_id"] = str(user_id)
 
-        # Clean None values and convert floats
+        # Convert numbers/decimals and remove None
         item = {k: _to_dynamo_decimal(v) for k, v in item.items() if v is not None}
         table = _table(DYNAMO_PLANTINGS_TABLE)
         table.put_item(Item=item)
-        logger.info("Saved planting %s to DynamoDB for user %s", item.get("planting_id"), item.get("user_id"))
+        logger.info("Saved planting %s to DynamoDB (user: %s / username: %s)", item.get("planting_id"), item.get("user_id"), item.get("username"))
         return str(item.get("planting_id"))
     except ClientError as e:
         logger.exception("DynamoDB ClientError saving planting: %s", e)
@@ -268,6 +266,67 @@ def save_planting_to_dynamodb(planting: Union[Dict[str, Any], object]) -> Option
         logger.exception("Unexpected error saving planting to DynamoDB: %s", e)
         return None
 
+
+def load_user_plantings(user_identifier: str) -> List[Dict[str, Any]]:
+    """
+    Load plantings for the provided user identifier.
+    The identifier may be a user_id (Cognito sub or django_<pk>) or a username (table PK).
+    Attempt these in order:
+      1. Query GSI user_id-index using user_id (if index exists)
+      2. Scan filter by user_id
+      3. Scan filter by username
+    Returns list of items (may be empty).
+    """
+    try:
+        table = _table(DYNAMO_PLANTINGS_TABLE)
+        # First, try to query by GSI (user_id-index) using identifier as user_id
+        try:
+            resp = table.query(IndexName="user_id-index", KeyConditionExpression=Key("user_id").eq(str(user_identifier)))
+            items = resp.get("Items", []) or []
+            if items:
+                logger.debug("Loaded %d plantings for user_id via GSI", len(items))
+                return items
+        except ClientError as e:
+            logger.debug("GSI query failed or not present: %s", e)
+        except Exception as e:
+            logger.debug("GSI query error: %s", e)
+
+        # Fallback scan by user_id
+        items = []
+        scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_identifier))}
+        start_key = None
+        while True:
+            if start_key:
+                scan_kwargs["ExclusiveStartKey"] = start_key
+            resp = table.scan(**scan_kwargs)
+            items.extend(resp.get("Items", []) or [])
+            start_key = resp.get("LastEvaluatedKey")
+            if not start_key:
+                break
+        if items:
+            logger.debug("Scanned and found %d plantings for user_id", len(items))
+            return items
+
+        # Final fallback: scan by username (the users table PK)
+        items = []
+        scan_kwargs = {"FilterExpression": Attr("username").eq(str(user_identifier))}
+        start_key = None
+        while True:
+            if start_key:
+                scan_kwargs["ExclusiveStartKey"] = start_key
+            resp = table.scan(**scan_kwargs)
+            items.extend(resp.get("Items", []) or [])
+            start_key = resp.get("LastEvaluatedKey")
+            if not start_key:
+                break
+        logger.debug("Scanned and found %d plantings for username", len(items))
+        return items
+    except ClientError as e:
+        logger.exception("DynamoDB ClientError loading plantings for %s: %s", user_identifier, e)
+        return []
+    except Exception as e:
+        logger.exception("Unexpected error loading plantings for %s: %s", user_identifier, e)
+        return []
 
 def load_user_plantings(user_id: str) -> List[Dict[str, Any]]:
     """
