@@ -99,9 +99,10 @@ def index(request):
             planting = planting_data.copy() # Work with a copy
             planting['id'] = i
 
-            # Ensure image_url is preserved (for display)
-            if 'image_url' not in planting:
-                planting['image_url'] = planting_data.get('image_url', '')
+            # Ensure image_url is preserved (for display) - get from original data
+            # Check both the copy and original data
+            planting['image_url'] = planting.get('image_url') or planting_data.get('image_url', '') or ''
+            logger.debug('Planting %d image_url: %s', i, planting.get('image_url', 'NONE'))
 
             # Convert the main planting_date
             if 'planting_date' in planting:
@@ -345,11 +346,29 @@ def update_planting(request, planting_id):
         existing_planting = user_plantings[planting_id]
         actual_planting_id = existing_planting.get('planting_id')
 
-        # Get form values, but preserve old values if not provided or changed
-        crop_name = request.POST.get('crop_name') or existing_planting.get('crop_name', '')
-        planting_date_str = request.POST.get('planting_date') or existing_planting.get('planting_date', '')
-        batch_id = request.POST.get('batch_id') or existing_planting.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
-        notes = request.POST.get('notes', '') or existing_planting.get('notes', '')
+        # Get form values - POST always has values, but preserve old values if empty strings
+        crop_name = request.POST.get('crop_name', '').strip()
+        if not crop_name:
+            crop_name = existing_planting.get('crop_name', '')
+        
+        planting_date_str = request.POST.get('planting_date', '').strip()
+        if not planting_date_str:
+            # Try to get from existing planting
+            existing_date = existing_planting.get('planting_date', '')
+            if isinstance(existing_date, date):
+                planting_date_str = existing_date.isoformat()
+            elif isinstance(existing_date, str):
+                planting_date_str = existing_date
+            else:
+                planting_date_str = str(existing_date) if existing_date else ''
+        
+        batch_id = request.POST.get('batch_id', '').strip()
+        if not batch_id:
+            batch_id = existing_planting.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
+        
+        notes = request.POST.get('notes', '').strip()
+        if not notes:
+            notes = existing_planting.get('notes', '')
 
         # Handle image upload - only update if new image is uploaded
         image_url = existing_planting.get('image_url', '')
