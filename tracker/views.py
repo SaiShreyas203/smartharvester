@@ -391,111 +391,40 @@ def edit_planting_view(request, planting_id):
     return render(request, 'tracker/edit.html', context)
 
 
-def update_planting(request, planting_id):
-    """Update planting - update in Dynamo and session"""
-    if request.method != 'POST':
-        return redirect('index')
+def upload_planting_image(file_obj, user_id: str, folder: str = "media/planting_images") -> str:
+    """
+    Upload Django UploadedFile to S3 and return a public URL.
 
-    load_user_plantings = _get_helper('load_user_plantings')
-    save_planting_to_dynamodb = _get_helper('save_planting_to_dynamodb')
-    get_user_id_from_token = _get_helper('get_user_id_from_token', 'get_user_id_from_request')
-    upload_planting_image = _get_helper('upload_planting_image')
-    delete_image_from_s3 = _get_helper('delete_image_from_s3')
+    Do NOT set ACL here because the bucket enforces 'no ACLs' (BucketOwnerEnforced).
+    Public access is granted by the bucket policy on media/*.
+    """
+    import os
+    from urllib.parse import quote_plus
+    import boto3
+    from botocore.exceptions import ClientError
 
-    user_id = None
+    S3_BUCKET = os.getenv("S3_BUCKET", "terratrack-media")
+    AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+    s3 = boto3.client("s3", region_name=AWS_REGION)
+
+    filename = getattr(file_obj, "name", "upload").replace(" ", "_").replace("..", "_")
+    key = f"{folder}/{user_id}/{filename}"
+    content_type = getattr(file_obj, "content_type", "application/octet-stream")
+
     try:
-        if get_user_id_from_token:
-            user_id = get_user_id_from_token(request)
-        elif hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-            user_id = str(request.user.pk)
-    except Exception:
-        logger.exception('Error getting user id in update_planting')
-
-    user_plantings = []
-    if user_id and load_user_plantings:
         try:
-            user_plantings = load_user_plantings(user_id)
-        except Exception as e:
-            logger.exception('Error loading from DynamoDB: %s', e)
+            file_obj.seek(0)
+        except Exception:
+            pass
+        s3.upload_fileobj(file_obj, S3_BUCKET, key, ExtraArgs={"ContentType": content_type})
+    except ClientError as e:
+        logger.exception("S3 upload failed: %s", e)
+        raise
 
-    if not user_plantings:
-        user_plantings = request.session.get('user_plantings', [])
-
-    if planting_id >= len(user_plantings):
-        logger.error('Planting index %d out of range (total: %d)', planting_id, len(user_plantings))
-        return redirect('index')
-
-    existing_planting = dict(user_plantings[planting_id])
-    actual_planting_id = existing_planting.get('planting_id')
-
-    crop_name = request.POST.get('crop_name', '').strip() or existing_planting.get('crop_name', '')
-    planting_date_str = request.POST.get('planting_date', '').strip() or existing_planting.get('planting_date', '')
-    batch_id = request.POST.get('batch_id', '').strip() or existing_planting.get('batch_id', f'batch-{date.today().strftime("%Y%m%d")}')
-    notes = request.POST.get('notes', '').strip() or existing_planting.get('notes', '')
-
-    image_url = existing_planting.get('image_url', '')
-    if 'image' in request.FILES and request.FILES['image'].name:
-        old_image = image_url
-        if old_image and delete_image_from_s3:
-            try:
-                delete_image_from_s3(old_image)
-            except Exception:
-                logger.exception('Failed deleting old image from S3: %s', old_image)
-        if user_id and upload_planting_image:
-            try:
-                image_url = upload_planting_image(request.FILES['image'], user_id)
-                logger.info('Uploaded new image for planting: %s', image_url)
-            except Exception:
-                logger.exception('Image upload failed for updated planting')
-
-    if not crop_name or not planting_date_str:
-        logger.error('Missing required fields on update')
-        return redirect('index')
-
-    if isinstance(planting_date_str, str):
-        planting_date = date.fromisoformat(planting_date_str)
-    elif isinstance(planting_date_str, date):
-        planting_date = planting_date_str
-    else:
-        logger.error('Invalid planting_date format on update')
-        return redirect('index')
-
-    calculate = _get_calculate_plan()
-    calculated_plan = calculate(crop_name, planting_date, load_plant_data())
-    for task in calculated_plan:
-        if 'due_date' in task and isinstance(task['due_date'], date):
-            task['due_date'] = task['due_date'].isoformat()
-
-    updated_planting = {
-        'crop_name': crop_name,
-        'planting_date': planting_date.isoformat(),
-        'batch_id': batch_id,
-        'notes': notes,
-        'plan': calculated_plan,
-        'image_url': image_url
-    }
-    if actual_planting_id:
-        updated_planting['planting_id'] = actual_planting_id
-
-    # Persist change to Dynamo (helper expects the planting dict)
-    try:
-        if user_id and save_planting_to_dynamodb:
-            returned = save_planting_to_dynamodb(updated_planting)
-            if returned:
-                logger.info('Updated planting %s in DynamoDB', returned)
-            else:
-                logger.warning('Dynamo update did not return id; session updated only')
-    except Exception:
-        logger.exception('Failed to update planting in DynamoDB, proceeding with session update')
-
-    # Update session
-    user_plantings[planting_id] = updated_planting
-    request.session['user_plantings'] = user_plantings
-    request.session.modified = True
-    logger.info('Updated planting at index %d in session', planting_id)
-
-    return redirect('index')
-
+    encoded_key = quote_plus(key, safe="/")
+    url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{encoded_key}"
+    logger.info("Uploaded file to S3: %s", url)
+    return url
 
 def delete_planting(request, planting_id):
     """Delete planting - Dynamo and session"""
