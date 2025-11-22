@@ -293,8 +293,18 @@ def cognito_callback(request):
     logger.info('Cognito callback: Tokens received successfully')
     
     try:
+        # Save all tokens to session for future use
         request.session['id_token'] = tokens.get('id_token')
         request.session['access_token'] = tokens.get('access_token')
+        # Also save refresh_token for token refresh
+        if tokens.get('refresh_token'):
+            request.session['refresh_token'] = tokens.get('refresh_token')
+        # Save in old format for compatibility
+        request.session['cognito_tokens'] = {
+            'id_token': tokens.get('id_token'),
+            'access_token': tokens.get('access_token'),
+            'refresh_token': tokens.get('refresh_token'),
+        }
         logger.info('Cognito callback: Tokens saved to session, redirecting to homepage')
     except OperationalError as e:
         logger.exception('Database error saving session: %s', e)

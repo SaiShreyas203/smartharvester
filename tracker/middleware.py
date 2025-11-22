@@ -35,13 +35,17 @@ class CognitoTokenMiddleware:
         
         logger.debug('CognitoTokenMiddleware: Processing path: %s', request.path)
         
+        # Only verify tokens if they exist - don't require authentication for public pages
+        # This allows the home page and other public pages to work without tokens
         try:
             # Check session directly for Cognito tokens (both old and new format)
             # Note: This will trigger session loading, but only for non-callback paths
             id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
             if id_token:
+                # Only verify token if it exists - if no token, let the view handle it
                 try:
                     verify_id_token(id_token)
+                    logger.debug('CognitoTokenMiddleware: Token verified successfully')
                 except Exception as e:
                     logger.info('ID token verify failed: %s', e)
                     # Try to refresh if refresh_token is available
@@ -54,11 +58,22 @@ class CognitoTokenMiddleware:
                             request.session['cognito_tokens'] = new
                             request.session['id_token'] = new.get('id_token')
                             request.session['access_token'] = new.get('access_token')
-                        except Exception:
-                            logger.info('Refresh failed; redirecting to login')
-                            return redirect('cognito_login')
+                            logger.info('CognitoTokenMiddleware: Token refreshed successfully')
+                        except Exception as refresh_error:
+                            logger.warning('Refresh failed: %s; clearing invalid tokens', refresh_error)
+                            # Clear invalid tokens from session instead of redirecting
+                            # Let the view decide if authentication is required
+                            request.session.pop('id_token', None)
+                            request.session.pop('access_token', None)
+                            request.session.pop('cognito_tokens', None)
                     else:
-                        return redirect('cognito_login')
+                        logger.warning('No refresh token available; clearing invalid tokens')
+                        # Clear invalid tokens instead of redirecting
+                        request.session.pop('id_token', None)
+                        request.session.pop('access_token', None)
+                        request.session.pop('cognito_tokens', None)
+            else:
+                logger.debug('CognitoTokenMiddleware: No tokens in session - allowing request to continue')
         except Exception as e:
             # Handle database connection errors gracefully
             # If we can't access the session, just continue to the view
