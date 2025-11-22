@@ -621,8 +621,9 @@ def cognito_callback(request):
         request.session.modified = True
         logger.info('Cognito callback: Tokens saved to session')
 
-        # Best-effort: decode id_token and save user to DynamoDB
+        # Best-effort: decode id_token for logging and then persist via persist_cognito_user
         id_token = tokens.get('id_token')
+        payload = {}
         if id_token:
             try:
                 # Try jose first (if available), then PyJWT fallback
@@ -636,34 +637,23 @@ def cognito_callback(request):
                     except Exception as e:
                         logger.exception('Failed to decode id_token: %s', e)
                         payload = {}
-
                 logger.info('Extracted user data from id_token keys: %s', list(payload.keys()))
-
-                # Build simple user_data
-                user_data = {
-                    'username': payload.get('username') or payload.get('preferred_username') or payload.get('sub'),
-                    'email': payload.get('email'),
-                    'sub': payload.get('sub'),
-                    'name': payload.get('name') or payload.get('username') or payload.get('email')
-                }
-
-                # Try multiple helper names to save user to DynamoDB (best-effort)
-                save_user_to_dynamodb = _get_helper('save_user_to_dynamodb', 'create_or_update_user', 'save_user')
-                if save_user_to_dynamodb:
-                    try:
-                        saved = save_user_to_dynamodb(user_data)
-                        if saved:
-                            logger.info('User saved to DynamoDB (best-effort)')
-                        else:
-                            logger.warning('Dynamo helper returned falsy when saving user')
-                    except Exception:
-                        logger.exception('Exception while saving user to DynamoDB')
-                else:
-                    logger.warning('No dynamo helper found to persist user data')
             except Exception:
-                logger.exception('Exception processing id_token for user save')
+                logger.exception('Exception decoding id_token')
+
+            # Persist user and migrate session plantings using the unified helper
+            try:
+                saved_ok, resolved_user_id = persist_cognito_user(request, id_token=id_token, claims=payload)
+                if saved_ok and resolved_user_id:
+                    request.session['user_id'] = resolved_user_id
+                    request.session.modified = True
+                    logger.info('persist_cognito_user succeeded: %s', resolved_user_id)
+                else:
+                    logger.warning('persist_cognito_user did not save user (saved_ok=%s)', saved_ok)
+            except Exception:
+                logger.exception('persist_cognito_user raised an exception')
         else:
-            logger.warning('No id_token available in Cognito response; skipping user save')
+            logger.warning('No id_token available in Cognito response; skipping user persist')
     except OperationalError as e:
         logger.exception('Database error saving session: %s', e)
         return HttpResponse("Authentication succeeded but session save failed.", status=503)
@@ -673,6 +663,79 @@ def cognito_callback(request):
 
     return redirect('/')
 
+def persist_cognito_user(request, id_token: str | None = None, claims: dict | None = None) -> tuple[bool, str | None]:
+    """
+    Persist Cognito user info into the users DynamoDB table and migrate session plantings.
+    - id_token: optional JWT string (if not provided, the helper will try request.session['id_token'])
+    - claims: optional already-decoded claims dict (if provided, decoding is skipped)
+    Returns (saved_ok, resolved_user_id)
+    """
+    import logging
+    import uuid
+    from .dynamodb_helper import save_user_to_dynamodb, get_user_data_from_token, get_user_id_from_token, save_planting_to_dynamodb
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Resolve claims and stable id
+        if claims is None:
+            # get_user_data_from_token handles None or raw token depending on your helper implementation
+            claims = get_user_data_from_token(id_token or request.session.get("id_token")) or {}
+        user_id = get_user_id_from_token(id_token or request.session.get("id_token")) or claims.get("sub")
+
+        # Build username (table PK expected to be "username")
+        username = (
+            claims.get("cognito:username")
+            or claims.get("preferred_username")
+            or claims.get("username")
+            or claims.get("email")
+        )
+        # If username still missing, fallback to user_id (string) to ensure PK not empty
+        if not username:
+            if user_id:
+                username = f"user_{user_id}"
+            else:
+                username = f"anon_{uuid.uuid4().hex[:8]}"
+
+        # Build item to store
+        user_item = {
+            "username": username,
+            "user_id": user_id or username,
+            "email": claims.get("email"),
+            "name": claims.get("name") or " ".join(filter(None, (claims.get("given_name"), claims.get("family_name")))),
+            "country": claims.get("locale") or claims.get("zoneinfo"),
+            # store sub explicitly too (helpful later)
+            "sub": claims.get("sub")
+        }
+        # Remove None values (Dynamo helper may already do this, but safe)
+        user_item = {k: v for k, v in user_item.items() if v is not None and v != ""}
+
+        saved = save_user_to_dynamodb(user_id or username, user_item)
+        if saved:
+            logger.info("Saved user to DynamoDB: username=%s user_id=%s", username, user_item.get("user_id"))
+        else:
+            logger.warning("save_user_to_dynamodb returned falsy for username=%s", username)
+
+        # Migrate session plantings (if any)
+        session_plantings = request.session.pop("user_plantings", []) or []
+        migrated = 0
+        for sp in session_plantings:
+            try:
+                sp["user_id"] = user_item.get("user_id") or user_item.get("sub") or user_item.get("username")
+                sp.setdefault("planting_id", sp.get("planting_id") or str(uuid.uuid4()))
+                pid = save_planting_to_dynamodb(sp)
+                if pid:
+                    migrated += 1
+            except Exception:
+                logger.exception("Failed to migrate planting %s", sp.get("planting_id"))
+        if migrated:
+            logger.info("Migrated %d session plantings into Dynamo for %s", migrated, username)
+        # mark session changed
+        request.session.modified = True
+
+        return bool(saved), user_item.get("user_id")
+    except Exception:
+        logger.exception("persist_cognito_user failed")
+        return False, None
 
 # API endpoint for returning user profile JSON (kept distinct from the login_required profile page)
 def user_profile_api(request):
