@@ -247,18 +247,17 @@ def cognito_login(request):
 
 
 def cognito_logout(request):
-    """Logout user by clearing Cognito tokens and redirecting."""
+    """Logout user by clearing Cognito tokens and redirecting to login page."""
     # Clear all Cognito tokens from session
     request.session.pop('id_token', None)
     request.session.pop('access_token', None)
     request.session.pop('refresh_token', None)
     request.session.pop('cognito_tokens', None)
     
-    logger.info('Cognito logout: Cleared tokens from session')
+    logger.info('Cognito logout: Cleared tokens from session, redirecting to login')
     
-    # Redirect to logout redirect URI (defaults to home page)
-    logout_redirect = getattr(settings, 'COGNITO_LOGOUT_REDIRECT_URI', '/')
-    return redirect(logout_redirect)
+    # Redirect to login page
+    return redirect('login')  # Redirects to /login/
 
 
 def cognito_callback(request):
