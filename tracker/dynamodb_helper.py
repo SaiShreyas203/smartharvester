@@ -90,17 +90,24 @@ def save_user_to_dynamodb(user_data):
         return False
     
     try:
+        # Check AWS credentials first
+        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+            logger.error('AWS credentials not configured! Cannot save user to DynamoDB')
+            return False
+        
         dynamodb = get_dynamodb_client()
         
         # Use username as the partition key (or sub/email as fallback)
         username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub') or user_data.get('email')
         if not username:
-            logger.error('Cannot save user: no username/sub/email found in user_data')
+            logger.error('Cannot save user: no username/sub/email found in user_data. Available keys: %s', list(user_data.keys()))
             return False
+        
+        logger.info('Saving user to DynamoDB: username=%s, table=%s', username, DYNAMODB_USERS_TABLE_NAME)
         
         # Prepare user item
         user_item = {
-            'username': {'S': username}
+            'username': {'S': str(username)}
         }
         
         # Add other user fields
@@ -122,42 +129,56 @@ def save_user_to_dynamodb(user_data):
         try:
             from botocore.exceptions import ClientError
             
-            # Check if table exists
+            # Check if table exists first
             try:
-                dynamodb.describe_table(TableName=DYNAMODB_USERS_TABLE_NAME)
+                table_info = dynamodb.describe_table(TableName=DYNAMODB_USERS_TABLE_NAME)
+                logger.info('Table %s exists. Status: %s', DYNAMODB_USERS_TABLE_NAME, table_info['Table']['TableStatus'])
             except ClientError as e:
                 error_code = e.response.get('Error', {}).get('Code', '')
                 if error_code == 'ResourceNotFoundException':
-                    logger.error('DynamoDB users table %s does not exist!', DYNAMODB_USERS_TABLE_NAME)
+                    logger.error('✗ DynamoDB users table "%s" does not exist!', DYNAMODB_USERS_TABLE_NAME)
+                    logger.error('Please create the table in AWS Console or run: python scripts/create_users_table.py')
+                    return False
+                else:
+                    logger.exception('Error checking if table exists: %s', e)
                     return False
             
-            # Use put_item with update expression to preserve created_at if user exists
-            # First check if user exists
+            # Check if user exists to preserve created_at
             try:
                 existing = dynamodb.get_item(
                     TableName=DYNAMODB_USERS_TABLE_NAME,
-                    Key={'username': {'S': username}}
+                    Key={'username': {'S': str(username)}}
                 )
                 if 'Item' in existing:
                     # User exists, preserve created_at
+                    logger.info('User %s already exists, updating last_login', username)
                     if 'created_at' in existing['Item']:
                         user_item['created_at'] = existing['Item']['created_at']
-            except Exception:
-                pass  # If check fails, proceed with new user
+                else:
+                    logger.info('Creating new user: %s', username)
+            except Exception as check_error:
+                logger.warning('Could not check if user exists: %s', check_error)
+                # Continue anyway
             
             # Save user
             dynamodb.put_item(
                 TableName=DYNAMODB_USERS_TABLE_NAME,
                 Item=user_item
             )
-            logger.info('✓ Saved user %s to DynamoDB users table', username)
+            logger.info('✓ Successfully saved user "%s" to DynamoDB users table "%s"', username, DYNAMODB_USERS_TABLE_NAME)
+            logger.info('User fields saved: %s', list(user_item.keys()))
             return True
+            
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
             if error_code == 'ResourceNotFoundException':
-                logger.error('DynamoDB users table %s does not exist!', DYNAMODB_USERS_TABLE_NAME)
+                logger.error('✗ DynamoDB users table "%s" does not exist!', DYNAMODB_USERS_TABLE_NAME)
+                logger.error('Please create the table in AWS Console')
+            elif error_code == 'AccessDeniedException':
+                logger.error('✗ Access denied to DynamoDB. Check IAM permissions for: dynamodb:PutItem, dynamodb:GetItem, dynamodb:DescribeTable')
             else:
-                logger.exception('DynamoDB ClientError saving user: %s', e)
+                logger.exception('DynamoDB ClientError saving user: Code=%s, Message=%s', error_code, error_message)
             return False
         except Exception as db_error:
             logger.exception('DynamoDB put_item failed for user: %s', db_error)

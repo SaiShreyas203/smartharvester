@@ -551,19 +551,45 @@ def cognito_callback(request):
             'access_token': tokens.get('access_token'),
             'refresh_token': tokens.get('refresh_token'),
         }
+        request.session.modified = True  # Ensure session is saved
         logger.info('Cognito callback: Tokens saved to session')
         
-        # Save user data to DynamoDB users table
-        from .dynamodb_helper import get_user_data_from_token, save_user_to_dynamodb
-        user_data = get_user_data_from_token(request)
-        if user_data:
-            logger.info('Saving user data to DynamoDB users table')
-            if save_user_to_dynamodb(user_data):
-                logger.info('✓ User data saved to DynamoDB users table')
+        # Save user data to DynamoDB users table (MUST HAPPEN AFTER TOKENS ARE SAVED)
+        from .dynamodb_helper import save_user_to_dynamodb
+        
+        # Extract user data from the ID token directly
+        try:
+            from jose import jwt
+            id_token = tokens.get('id_token')
+            if not id_token:
+                logger.error('✗ No ID token in Cognito response - cannot save user data')
             else:
-                logger.warning('Failed to save user data to DynamoDB (non-critical)')
-        else:
-            logger.warning('Could not extract user data from token for DynamoDB save')
+                # Decode token to get user data
+                user_data = jwt.decode(id_token, options={"verify_signature": False})
+                logger.info('Extracted user data from token. Available keys: %s', list(user_data.keys()))
+                
+                # Log user information for debugging
+                username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub') or user_data.get('email')
+                logger.info('User info: username=%s, email=%s, sub=%s', 
+                          username,
+                          user_data.get('email', 'N/A'),
+                          user_data.get('sub', 'N/A'))
+                
+                # Save to DynamoDB
+                from .dynamodb_helper import DYNAMODB_USERS_TABLE_NAME
+                logger.info('Attempting to save user to DynamoDB users table...')
+                if save_user_to_dynamodb(user_data):
+                    logger.info('✓✓✓ SUCCESS: User data saved to DynamoDB users table')
+                else:
+                    logger.error('✗✗✗ FAILED: User data NOT saved to DynamoDB users table')
+                    logger.error('Troubleshooting steps:')
+                    logger.error('  1. Check if DynamoDB "users" table exists in AWS Console')
+                    logger.error('  2. Verify AWS credentials in .env file (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)')
+                    logger.error('  3. Check IAM permissions: dynamodb:PutItem, dynamodb:GetItem, dynamodb:DescribeTable')
+                    logger.error('  4. Verify table name matches: %s', DYNAMODB_USERS_TABLE_NAME)
+                    logger.error('  5. Run: python scripts/create_users_table.py to create the table')
+        except Exception as user_save_error:
+            logger.exception('✗ Exception while saving user data to DynamoDB: %s', user_save_error)
         
         logger.info('Cognito callback: Redirecting to homepage')
     except OperationalError as e:
