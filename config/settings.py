@@ -122,6 +122,7 @@ DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv('DYNAMODB_PLANTINGS_TABLE_NAME', 'plan
 # -------- AWS SNS CONFIGURATION --------
 # SNS topic for notifications
 SNS_TOPIC_ARN = os.getenv('SNS_TOPIC_ARN', 'arn:aws:sns:us-east-1:518029233624:harvest-notifications')
+SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:518029233624:harvest-notifications" AWS_REGION = "us-east-1"
 
 # --- STATIC FILES (CSS, JavaScript, Images) ---
 if IS_PRODUCTION:

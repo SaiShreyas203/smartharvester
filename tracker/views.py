@@ -533,12 +533,12 @@ def delete_planting(request, planting_id):
 def cognito_login(request):
     """Redirect user to Cognito Hosted UI login."""
     from .cognito import build_authorize_url
-    callback_url = request.build_absolute_uri('/auth/callback/')
-    from urllib.parse import urlparse, urlunparse
-    parsed = urlparse(callback_url)
-    callback_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
-    url = build_authorize_url(redirect_uri=callback_url)
-    logger.info('Cognito login: Redirecting to Cognito with redirect_uri: %s', callback_url)
+    # Use the exact redirect_uri from settings to match Cognito configuration
+    # This must match exactly what's configured in Cognito App Client settings
+    redirect_uri = settings.COGNITO_REDIRECT_URI
+    logger.info('Cognito login: Using redirect_uri from settings: %s', redirect_uri)
+    url = build_authorize_url(redirect_uri=redirect_uri)
+    logger.info('Cognito login: Redirecting to Cognito authorize URL')
     return redirect(url)
 
 
@@ -572,12 +572,10 @@ def cognito_callback(request):
         logger.warning('Cognito callback: No code provided and no error - unexpected response')
         return HttpResponse("No code provided. Please try logging in again.", status=400)
 
-    # Build redirect_uri used in authorize request
-    actual_redirect_uri = request.build_absolute_uri(request.path)
-    from urllib.parse import urlparse, urlunparse
-    parsed = urlparse(actual_redirect_uri)
-    actual_redirect_uri = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
-    redirect_uri = actual_redirect_uri or settings.COGNITO_REDIRECT_URI
+    # Use the exact redirect_uri from settings to match what was used in authorize request
+    # This must match exactly what's configured in Cognito App Client settings
+    redirect_uri = settings.COGNITO_REDIRECT_URI
+    logger.info('Cognito callback: Using redirect_uri from settings: %s', redirect_uri)
 
     token_url = f"https://{settings.COGNITO_DOMAIN}/oauth2/token"
     data = {

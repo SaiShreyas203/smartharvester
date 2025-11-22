@@ -1,139 +1,86 @@
-"""
-SNS helper functions for sending notifications to users.
-"""
-import boto3
-from django.conf import settings
 import logging
+from typing import Optional, Dict, Any
+
+import boto3
+from botocore.exceptions import ClientError
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 
-def get_sns_client():
-    """Get SNS client with AWS credentials."""
-    access_key = settings.AWS_ACCESS_KEY_ID
-    secret_key = settings.AWS_SECRET_ACCESS_KEY
-    region = getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
-    
-    if not access_key or not secret_key:
-        logger.warning('AWS credentials not fully configured for SNS')
-    
-    return boto3.client(
-        'sns',
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region
-    )
+def _sns_client():
+    # Use settings.AWS_REGION if set, otherwise default boto3 will use env/instance profile
+    region = getattr(settings, "AWS_REGION", None)
+    return boto3.client("sns", region_name=region) if region else boto3.client("sns")
 
 
-def subscribe_email_to_topic(email, topic_arn=None):
+def get_topic_arn() -> Optional[str]:
+    # Prefer settings then environment; set this in config/settings.py or as env var
+    return getattr(settings, "SNS_TOPIC_ARN", None)
+
+
+def publish_notification(subject: str, message: str, topic_arn: Optional[str] = None, message_attributes: Optional[Dict[str, Any]] = None) -> Optional[Dict]:
     """
-    Subscribe an email address to an SNS topic.
-    
-    Args:
-        email: Email address to subscribe
-        topic_arn: SNS topic ARN (defaults to settings.SNS_TOPIC_ARN)
-    
-    Returns:
-        subscription_arn if successful, None otherwise
+    Publish a message to the harvest SNS topic.
+    Returns the boto3 response dict on success, or None on failure.
     """
+    arn = topic_arn or get_topic_arn()
+    if not arn:
+        logger.error("publish_notification: no SNS topic ARN configured")
+        return None
+    client = _sns_client()
+    kwargs = {"TopicArn": arn, "Message": message}
+    if subject:
+        kwargs["Subject"] = subject
+    if message_attributes:
+        kwargs["MessageAttributes"] = message_attributes
     try:
-        if not topic_arn:
-            topic_arn = getattr(settings, 'SNS_TOPIC_ARN', None)
-        
-        if not topic_arn:
-            logger.error('SNS_TOPIC_ARN not configured in settings')
-            return None
-        
-        sns = get_sns_client()
-        
-        logger.info('Subscribing email %s to topic %s', email, topic_arn)
-        response = sns.subscribe(
-            TopicArn=topic_arn,
-            Protocol='email',
-            Endpoint=email
-        )
-        
-        subscription_arn = response.get('SubscriptionArn')
-        logger.info('✓ Email %s subscribed. Subscription ARN: %s', email, subscription_arn)
-        return subscription_arn
-        
-    except Exception as e:
-        logger.exception('Error subscribing email %s to SNS topic: %s', email, e)
+        resp = client.publish(**kwargs)
+        logger.info("Published SNS message to %s MessageId=%s", arn, resp.get("MessageId"))
+        return resp
+    except ClientError as e:
+        logger.exception("SNS publish failed: %s", e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error publishing SNS message")
         return None
 
 
-def send_notification(email, subject, message, topic_arn=None):
+def subscribe_email_to_topic(email: str, topic_arn: Optional[str] = None) -> Optional[str]:
     """
-    Send a notification to a user via SNS (email).
-    
-    Args:
-        email: User's email address
-        subject: Email subject
-        message: Email message body
-        topic_arn: SNS topic ARN (defaults to settings.SNS_TOPIC_ARN)
-    
-    Returns:
-        MessageId if successful, None otherwise
+    Subscribe an email endpoint to the topic. Returns the SubscriptionArn or None.
+    For 'email' protocol, subscription must be confirmed by the recipient (they will get a confirmation email).
     """
+    arn = topic_arn or get_topic_arn()
+    if not arn:
+        logger.error("subscribe_email_to_topic: no SNS topic ARN configured")
+        return None
+    client = _sns_client()
     try:
-        if not topic_arn:
-            topic_arn = getattr(settings, 'SNS_TOPIC_ARN', None)
-        
-        if not topic_arn:
-            logger.error('SNS_TOPIC_ARN not configured in settings')
-            return None
-        
-        sns = get_sns_client()
-        
-        logger.info('Sending notification to %s via topic %s', email, topic_arn)
-        logger.info('Subject: %s', subject)
-        
-        # For email notifications via SNS, we need to ensure the email is subscribed
-        # SNS will send to all subscribers, so we include email in message for filtering
-        full_message = f"{message}\n\n---\nThis notification is for: {email}"
-        
-        response = sns.publish(
-            TopicArn=topic_arn,
-            Subject=subject,
-            Message=full_message
-        )
-        
-        message_id = response.get('MessageId')
-        logger.info('✓ Notification sent. Message ID: %s', message_id)
-        return message_id
-        
-    except Exception as e:
-        logger.exception('Error sending notification to %s: %s', email, e)
+        resp = client.subscribe(TopicArn=arn, Protocol="email", Endpoint=email, ReturnSubscriptionArn=True)
+        sub_arn = resp.get("SubscriptionArn")
+        logger.info("Subscribed %s to %s (SubscriptionArn=%s). Email must confirm subscription.", email, arn, sub_arn)
+        return sub_arn
+    except ClientError as e:
+        logger.exception("SNS subscribe failed: %s", e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error subscribing to SNS")
         return None
 
 
-def send_harvest_reminder(email, planting_info):
-    """
-    Send a harvest reminder notification for a specific planting.
-    
-    Args:
-        email: User's email address
-        planting_info: Dict with planting details (crop_name, planting_date, due_date, etc.)
-    
-    Returns:
-        MessageId if successful, None otherwise
-    """
-    crop_name = planting_info.get('crop_name', 'your crop')
-    due_date = planting_info.get('due_date', 'soon')
-    
-    subject = f"🌱 Harvest Reminder: {crop_name} needs attention"
-    message = f"""Hello!
-
-This is a reminder that your {crop_name} planting needs attention.
-
-Planting Date: {planting_info.get('planting_date', 'N/A')}
-Due Date: {due_date}
-
-Remember to check your planting care plan for all scheduled tasks.
-
-Happy harvesting!
-- TerraTrack Team
-"""
-    
-    return send_notification(email, subject, message)
-
+def list_subscriptions_for_topic(topic_arn: Optional[str] = None):
+    arn = topic_arn or get_topic_arn()
+    if not arn:
+        logger.error("list_subscriptions_for_topic: no SNS topic ARN configured")
+        return []
+    client = _sns_client()
+    try:
+        resp = client.list_subscriptions_by_topic(TopicArn=arn)
+        return resp.get("Subscriptions", [])
+    except ClientError as e:
+        logger.exception("SNS list_subscriptions_by_topic failed: %s", e)
+        return []
+    except Exception:
+        logger.exception("Unexpected error listing subscriptions")
+        return []
