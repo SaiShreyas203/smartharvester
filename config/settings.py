@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import dj_database_url
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -8,6 +9,14 @@ IS_PRODUCTION = os.environ.get('IS_PRODUCTION', 'False') == 'True'
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-default-development-key')
 DEBUG = not IS_PRODUCTION
+
+load_dotenv()
+
+COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")
+COGNITO_CLIENT_SECRET = os.getenv("COGNITO_CLIENT_SECRET")
+COGNITO_DOMAIN = os.getenv("COGNITO_DOMAIN")
+COGNITO_REDIRECT_URI = os.getenv("COGNITO_REDIRECT_URI")
+COGNITO_REGION = os.getenv("COGNITO_REGION")
 
 if IS_PRODUCTION:
     ALLOWED_HOSTS = [os.environ.get('EB_HOSTNAME', '.localhost')]
