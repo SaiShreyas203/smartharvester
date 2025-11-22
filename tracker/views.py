@@ -623,36 +623,70 @@ def signup(request):
             username = form.cleaned_data['username']
             email = form.cleaned_data['email']
             
-            # Create Django user
-            user = User.objects.create_user(
-                username=username,
-                email=email,
-                password=form.cleaned_data['password1'],
-            )
-            UserProfile.objects.create(
-                user=user,
-                country=form.cleaned_data['country']
-            )
-            
-            # Save user to DynamoDB users table
-            from .dynamodb_helper import save_user_to_dynamodb
-            user_data = {
-                'username': username,
-                'email': email,
-                'sub': f'django_{user.id}',  # Use Django user ID as sub
-                'name': username,
-            }
-            logger.info('Saving new user to DynamoDB: username=%s, email=%s', username, email)
-            if save_user_to_dynamodb(user_data):
-                logger.info('✓ User %s saved to DynamoDB users table', username)
-            else:
-                logger.error('✗ Failed to save user %s to DynamoDB users table', username)
-            
-            # Authenticate and login
-            user = authenticate(username=username, password=form.cleaned_data['password1'])
-            if user is not None:
-                login(request, user)
-            return redirect('/')
+            try:
+                # Create Django user
+                user = User.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=form.cleaned_data['password1'],
+                )
+                logger.info('✓ Django user created: username=%s, id=%s', username, user.id)
+                
+                UserProfile.objects.create(
+                    user=user,
+                    country=form.cleaned_data['country']
+                )
+                logger.info('✓ UserProfile created for: %s', username)
+                
+                # Save user to DynamoDB users table (CRITICAL - must happen)
+                from .dynamodb_helper import save_user_to_dynamodb
+                user_data = {
+                    'username': username,
+                    'email': email,
+                    'sub': f'django_{user.id}',  # Use Django user ID as sub
+                    'name': username,
+                }
+                
+                logger.info('=' * 60)
+                logger.info('ATTEMPTING TO SAVE USER TO DYNAMODB')
+                logger.info('Username: %s', username)
+                logger.info('Email: %s', email)
+                logger.info('User ID (sub): django_%s', user.id)
+                logger.info('AWS Access Key ID configured: %s', bool(settings.AWS_ACCESS_KEY_ID))
+                logger.info('AWS Secret Key configured: %s', bool(settings.AWS_SECRET_ACCESS_KEY))
+                logger.info('DynamoDB Table Name: %s', getattr(settings, 'DYNAMODB_USERS_TABLE_NAME', 'users'))
+                logger.info('=' * 60)
+                
+                try:
+                    save_result = save_user_to_dynamodb(user_data)
+                    if save_result:
+                        logger.info('✓✓✓ SUCCESS: User %s saved to DynamoDB users table', username)
+                    else:
+                        logger.error('✗✗✗ FAILED: User %s NOT saved to DynamoDB users table', username)
+                        logger.error('Check logs above for error details')
+                        logger.error('Troubleshooting:')
+                        logger.error('  1. Verify AWS credentials in .env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY')
+                        logger.error('  2. Check IAM permissions: dynamodb:PutItem, dynamodb:GetItem, dynamodb:DescribeTable')
+                        logger.error('  3. Verify table exists: aws dynamodb describe-table --table-name users --region us-east-1')
+                        logger.error('  4. Check table name matches: %s', getattr(settings, 'DYNAMODB_USERS_TABLE_NAME', 'users'))
+                except Exception as dynamo_error:
+                    logger.exception('EXCEPTION while saving to DynamoDB: %s', dynamo_error)
+                    # Continue anyway - don't block signup if DynamoDB fails
+                
+                # Authenticate and login
+                user = authenticate(username=username, password=form.cleaned_data['password1'])
+                if user is not None:
+                    login(request, user)
+                    logger.info('✓ User %s authenticated and logged in', username)
+                else:
+                    logger.error('✗ Failed to authenticate user %s after signup', username)
+                
+                return redirect('/')
+                
+            except Exception as e:
+                logger.exception('Error during signup: %s', e)
+                # Re-raise or handle as needed
+                form.add_error(None, f'An error occurred during signup: {str(e)}')
     else:
         form = SignUpForm()
     return render(request, 'registration/signup.html', {'form': form})

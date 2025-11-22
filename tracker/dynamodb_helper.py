@@ -12,11 +12,21 @@ logger = logging.getLogger(__name__)
 # Initialize DynamoDB client
 def get_dynamodb_client():
     """Get DynamoDB client with AWS credentials."""
+    # Check if credentials are available
+    access_key = settings.AWS_ACCESS_KEY_ID
+    secret_key = settings.AWS_SECRET_ACCESS_KEY
+    region = getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
+    
+    if not access_key or not secret_key:
+        logger.warning('AWS credentials not fully configured. Access Key: %s, Secret Key: %s', 
+                      'SET' if access_key else 'MISSING', 
+                      'SET' if secret_key else 'MISSING')
+    
     return boto3.client(
         'dynamodb',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region
     )
 
 # Get DynamoDB table names from settings
@@ -90,12 +100,23 @@ def save_user_to_dynamodb(user_data):
         return False
     
     try:
-        # Check AWS credentials first
-        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
-            logger.error('AWS credentials not configured! Cannot save user to DynamoDB')
+        # Check AWS credentials first - with detailed logging
+        access_key = settings.AWS_ACCESS_KEY_ID
+        secret_key = settings.AWS_SECRET_ACCESS_KEY
+        
+        logger.info('Checking AWS credentials...')
+        logger.info('  AWS_ACCESS_KEY_ID: %s', 'SET (length: %d)' % len(access_key) if access_key else 'MISSING')
+        logger.info('  AWS_SECRET_ACCESS_KEY: %s', 'SET (length: %d)' % len(secret_key) if secret_key else 'MISSING')
+        
+        if not access_key or not secret_key:
+            logger.error('✗✗✗ AWS credentials not configured! Cannot save user to DynamoDB')
+            logger.error('  Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env file')
+            logger.error('  Or set them as environment variables')
             return False
         
+        logger.info('✓ AWS credentials found, creating DynamoDB client...')
         dynamodb = get_dynamodb_client()
+        logger.info('✓ DynamoDB client created successfully')
         
         # Use username as the partition key (or sub/email as fallback)
         username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub') or user_data.get('email')
