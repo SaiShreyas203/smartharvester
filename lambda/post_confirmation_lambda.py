@@ -12,44 +12,65 @@ PK_NAME = os.environ.get("DYNAMO_USERS_PK", "username")
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(DYNAMO_TABLE)
 
-def _build_item(event):
-    user_name = event.get("userName")
-    attrs = event.get("request", {}).get("userAttributes", {}) or {}
 
-    item = {
-        PK_NAME: user_name,
+def _build_attrs(event):
+    attrs = event.get("request", {}).get("userAttributes", {}) or {}
+    return {
         "user_id": attrs.get("sub"),
         "email": attrs.get("email"),
         "name": attrs.get("name") or attrs.get("given_name"),
-        "preferred_username": attrs.get("preferred_username")
+        "preferred_username": attrs.get("preferred_username"),
     }
 
-    return {k: v for k, v in item.items() if v is not None}
 
 def lambda_handler(event, context):
-    logger.info("Received event for user confirmation: %s", {k: event.get(k) for k in ("userName", "triggerSource")})
+    logger.info("PostConfirmation trigger for user=%s trigger=%s",
+                event.get("userName"), event.get("triggerSource"))
+
     if not DYNAMO_TABLE:
         logger.error("DYNAMO_USERS_TABLE not configured")
         return event
 
-    item = _build_item(event)
-    if not item:
-        logger.warning("No user attributes to persist: %s", event)
+    user_name = event.get("userName")
+    if not user_name:
+        logger.error("Missing userName in event")
         return event
 
+    attrs = _build_attrs(event)
+    # remove None values
+    attrs = {k: v for k, v in attrs.items() if v is not None}
+    if not attrs:
+        logger.info("No attributes to write for user=%s", user_name)
+        return event
+
+    # Use update_item to upsert/merge attributes (won't overwrite PK)
+    update_expressions = []
+    expr_attr_values = {}
+    expr_attr_names = {}
+
+    for i, (k, v) in enumerate(attrs.items()):
+        name_key = f"#k{i}"
+        val_key = f":v{i}"
+        expr_attr_names[name_key] = k
+        expr_attr_values[val_key] = v
+        update_expressions.append(f"{name_key} = {val_key}")
+
+    update_expr = "SET " + ", ".join(update_expressions)
+
     try:
-        table.put_item(
-            Item=item,
-            ConditionExpression=f"attribute_not_exists({PK_NAME})"
+        response = table.update_item(
+            Key={PK_NAME: user_name},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_attr_names,
+            ExpressionAttributeValues=expr_attr_values,
+            ReturnValues="ALL_NEW"
         )
-        logger.info("Created user item in DynamoDB: %s", item.get(PK_NAME))
+        logger.info("DynamoDB update succeeded for user=%s, attributes=%s",
+                    user_name, list(attrs.keys()))
+        # response['Attributes'] contains the up-to-date item
     except ClientError as e:
-        code = e.response.get("Error", {}).get("Code")
-        if code == "ConditionalCheckFailedException":
-            logger.info("User item already exists: %s", item.get(PK_NAME))
-        else:
-            logger.exception("DynamoDB put_item failed")
+        logger.exception("DynamoDB update_item failed for user=%s", user_name)
     except Exception:
-        logger.exception("Unexpected error writing to DynamoDB")
+        logger.exception("Unexpected error writing to DynamoDB for user=%s", user_name)
 
     return event
