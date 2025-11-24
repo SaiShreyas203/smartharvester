@@ -543,6 +543,7 @@ def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = F
     """
     try:
         table = _table(DYNAMO_NOTIFICATIONS_TABLE)
+        logger.debug("Loading notifications for user_id=%s, limit=%d, unread_only=%s", user_id, limit, unread_only)
         items = []
         
         # Try GSI query first (if user_id-index exists)
@@ -587,7 +588,12 @@ def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = F
         logger.debug("Loaded %d notifications for user %s via scan", len(items), user_id)
         return _convert_notifications_to_python(items)
     except ClientError as e:
-        logger.exception("DynamoDB ClientError loading notifications: %s", e)
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        if error_code == 'ResourceNotFoundException':
+            logger.error("❌ Notifications table '%s' does not exist in DynamoDB!", DYNAMO_NOTIFICATIONS_TABLE)
+            logger.error("Run: python scripts/create_notifications_table.py to create it.")
+        else:
+            logger.exception("DynamoDB ClientError loading notifications: %s (Code: %s)", e, error_code)
         return []
     except Exception as e:
         logger.exception("Error loading notifications: %s", e)

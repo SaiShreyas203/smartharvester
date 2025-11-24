@@ -984,6 +984,7 @@ def save_planting(request):
         from .dynamodb_helper import save_notification
         planting_id_for_notification = returned_id if returned_id else new_planting.get('planting_id') or local_planting_id
         if user_id:
+            logger.info('🔔 Attempting to create in-app notification for user_id=%s, crop_name=%s', user_id, crop_name)
             notification_id = save_notification(
                 user_id=user_id,
                 notification_type='plant_added',
@@ -993,9 +994,16 @@ def save_planting(request):
                 metadata={'crop_name': crop_name, 'planting_date': planting_date.isoformat()}
             )
             if notification_id:
-                logger.info('✅ Created in-app notification for new planting: %s', notification_id)
+                logger.info('✅ Created in-app notification for new planting: notification_id=%s, user_id=%s', notification_id, user_id)
+            else:
+                logger.warning('⚠️ save_notification returned None - notification not created. Check if notifications table exists in DynamoDB.')
+                logger.warning('Run: python scripts/create_notifications_table.py to create the table.')
+        else:
+            logger.warning('⚠️ No user_id available - skipping in-app notification creation')
     except Exception as e:
-        logger.exception('Error creating in-app notification for new planting: %s', e)
+        logger.exception('❌ Error creating in-app notification for new planting: %s', e)
+        logger.error('This might be because the notifications table does not exist in DynamoDB.')
+        logger.error('Run: python scripts/create_notifications_table.py to create it.')
         # Don't fail the request if notification creation fails
 
     # Send SNS email notification when planting is saved
@@ -2285,9 +2293,11 @@ def get_notification_summaries(request):
     try:
         from .dynamodb_helper import load_user_notifications
         in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False)
-        logger.info('Loaded %d in-app notifications for user %s', len(in_app_notifications), user_id)
+        logger.info('✅ Loaded %d in-app notifications for user %s', len(in_app_notifications), user_id)
     except Exception as e:
-        logger.exception('Error loading in-app notifications: %s', e)
+        logger.exception('❌ Error loading in-app notifications: %s', e)
+        logger.error('This might be because the notifications table does not exist in DynamoDB.')
+        logger.error('Run: python scripts/create_notifications_table.py to create it.')
         # Continue even if notifications can't be loaded
     
     # Load user's plantings for upcoming tasks
