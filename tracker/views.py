@@ -846,9 +846,17 @@ def save_planting(request):
                 logger.warning('save_planting: Session has token but extraction failed - redirecting to login')
                 logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
                 # Save next_url so user returns here after login
-                request.session['next_url'] = '/add/'
-                request.session.modified = True
-                return redirect('cognito_login')
+                try:
+                    request.session['next_url'] = '/add/'
+                    request.session.modified = True
+                except Exception as session_error:
+                    logger.exception('Error saving session before redirect: %s', session_error)
+                try:
+                    return redirect('cognito_login')
+                except Exception as redirect_err:
+                    logger.exception('Error during redirect to cognito_login: %s', redirect_err)
+                    from django.http import HttpResponse
+                    return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
         else:
             logger.warning('save_planting: No authenticated user found - no token in session')
             logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
@@ -856,9 +864,17 @@ def save_planting(request):
             if hasattr(request, 'cognito_user_id'):
                 logger.debug('save_planting: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
             # Save next_url so user returns here after login
-            request.session['next_url'] = '/add/'
-            request.session.modified = True
-            return redirect('cognito_login')
+            try:
+                request.session['next_url'] = '/add/'
+                request.session.modified = True
+            except Exception as session_error:
+                logger.exception('Error saving session before redirect: %s', session_error)
+            try:
+                return redirect('cognito_login')
+            except Exception as redirect_err:
+                logger.exception('Error during redirect to cognito_login: %s', redirect_err)
+                from django.http import HttpResponse
+                return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
 
     crop_name_raw = request.POST.get('crop_name')
     planting_date_str = request.POST.get('planting_date')
@@ -970,12 +986,17 @@ def save_planting(request):
         logger.error('Planting will be lost if session expires!')
 
     # Always save to session so it appears immediately
-    user_plantings = request.session.get('user_plantings', [])
-    user_plantings.append(new_planting)
-    request.session['user_plantings'] = user_plantings
-    request.session.modified = True
-    logger.info('✅ Saved planting to session: total=%d, planting_id=%s, user_id=%s, username=%s', 
-                len(user_plantings), new_planting.get('planting_id'), user_id, username)
+    try:
+        user_plantings = request.session.get('user_plantings', [])
+        user_plantings.append(new_planting)
+        request.session['user_plantings'] = user_plantings
+        request.session.modified = True
+        logger.info('✅ Saved planting to session: total=%d, planting_id=%s, user_id=%s, username=%s', 
+                    len(user_plantings), new_planting.get('planting_id'), user_id, username)
+    except Exception as session_error:
+        logger.exception('❌ Error saving planting to session: %s', session_error)
+        # Don't fail the request if session save fails - DynamoDB save succeeded
+        logger.warning('⚠️ Planting saved to DynamoDB but session save failed - user may need to refresh to see it')
     logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
                 crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
 
@@ -1130,7 +1151,25 @@ SmartHarvester Team"""
         logger.exception('❌ Error sending SNS notification for new planting: %s', e)
         # Don't fail the request if notification fails
 
-    return redirect('index')
+    # Redirect to index - wrap in try/except to prevent 502 if redirect fails
+        try:
+            return redirect('index')
+        except Exception as redirect_error:
+            logger.exception('❌ Error during redirect to index: %s', redirect_error)
+            # Return a simple response instead of crashing
+            from django.http import HttpResponse
+            return HttpResponse("Planting saved successfully. <a href='/'>Go to dashboard</a>", status=200)
+    
+    except Exception as fatal_error:
+        # Top-level exception handler to prevent 502 crashes - catch any unexpected errors
+        logger.exception('❌ FATAL ERROR in save_planting: %s', fatal_error)
+        logger.error('Error type: %s, Args: %s', type(fatal_error).__name__, str(fatal_error))
+        from django.http import HttpResponseServerError
+        try:
+            return HttpResponseServerError("An error occurred while saving the planting. Please try again.")
+        except Exception:
+            # Last resort - return simple text response
+            return HttpResponse("Error saving planting", status=500)
 
 def edit_planting_view(request, planting_id):
     """Edit planting view - loads from DynamoDB or session"""
