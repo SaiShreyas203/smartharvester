@@ -1,0 +1,54 @@
+# Example systemd service environment file
+# Place this at: /etc/systemd/system/smartharvester.service.d/env.conf
+# 
+# Usage:
+#   1. Copy this file to /etc/systemd/system/smartharvester.service.d/env.conf
+#   2. Edit the file and add your actual values (DO NOT commit secrets)
+#   3. Ensure the service unit file includes: EnvironmentFile=/etc/systemd/system/smartharvester.service.d/env.conf
+#   4. Reload systemd: sudo systemctl daemon-reload
+#   5. Restart service: sudo systemctl restart smartharvester
+
+# Cognito Configuration (REQUIRED)
+COGNITO_DOMAIN=your-cognito-domain.auth.region.amazoncognito.com
+COGNITO_CLIENT_ID=your-client-id
+COGNITO_REDIRECT_URI=https://3.235.196.246.nip.io/auth/callback/
+COGNITO_LOGOUT_REDIRECT_URI=https://3.235.196.246.nip.io/
+COGNITO_REGION=us-east-1
+COGNITO_SCOPE=openid email
+# Optional: only if your Cognito app client has a secret
+COGNITO_CLIENT_SECRET=your-client-secret
+
+# AWS Configuration
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-access-key-id
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
+
+# DynamoDB Configuration
+DYNAMODB_USERS_TABLE_NAME=users
+DYNAMODB_PLANTINGS_TABLE_NAME=plantings
+# Alternative env var names (for compatibility)
+DYNAMO_USERS_TABLE=users
+DYNAMO_PLANTINGS_TABLE=plantings
+DYNAMO_USERS_PK=username
+
+# SNS Configuration
+SNS_TOPIC_ARN=arn:aws:sns:us-east-1:518029233624:harvest-notifications
+
+# Django Configuration
+DJANGO_SECRET_KEY=your-django-secret-key-here
+DJANGO_SETTINGS_MODULE=config.settings
+IS_PRODUCTION=False
+
+# Database Configuration (optional - sqlite fallback will be used if not set)
+# DATABASE_URL=postgresql://user:password@host:port/dbname
+# OR
+# DATABASE_NAME=dbname
+# DATABASE_USER=dbuser
+# DATABASE_PASSWORD=dbpassword
+# DATABASE_HOST=localhost
+# DATABASE_PORT=5432
+
+# S3 Configuration (optional)
+AWS_STORAGE_BUCKET_NAME=your-bucket-name
+AWS_S3_REGION_NAME=us-east-1
+

@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -102,12 +103,29 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # --- DATABASE SETTINGS ---
-if IS_PRODUCTION:
-    DATABASES = {
-        'default': dj_database_url.config(conn_max_age=600)
-    }
-else:
-    # If DATABASE_NAME env var is supplied, use Postgres settings (development with a Postgres host).
+# Use sqlite fallback when no RDBMS is configured to prevent Django crashes
+# This allows Django admin/auth to work while app data is stored in DynamoDB
+db_url = os.getenv("DATABASE_URL", "").strip()
+if IS_PRODUCTION and db_url:
+    # Production: try DATABASE_URL first
+    try:
+        DATABASES = {
+            'default': dj_database_url.config(conn_max_age=600)
+        }
+        # Validate the config actually has a database
+        if not DATABASES.get('default', {}).get('NAME'):
+            raise ValueError("DATABASE_URL did not provide a database name")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.warning("Failed to configure database from DATABASE_URL: %s. Falling back to sqlite.", e)
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": BASE_DIR / "db.sqlite3",
+            }
+        }
+elif not IS_PRODUCTION:
+    # Development: If DATABASE_NAME env var is supplied, use Postgres settings
     db_name = os.getenv("DATABASE_NAME", "").strip()
     if db_name:
         db_host = os.getenv("DATABASE_HOST") or "localhost"
@@ -122,14 +140,21 @@ else:
             }
         }
     else:
-        # Fallback to a lightweight sqlite DB for local development to satisfy Django admin/auth.
-        # This keeps your app using DynamoDB for app data while allowing Django's contrib apps to work.
+        # Fallback to sqlite when DATABASE_NAME is not set
         DATABASES = {
             "default": {
                 "ENGINE": "django.db.backends.sqlite3",
                 "NAME": BASE_DIR / "db.sqlite3",
             }
         }
+else:
+    # Production but no DATABASE_URL: use sqlite fallback
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

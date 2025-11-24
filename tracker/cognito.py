@@ -48,15 +48,43 @@ def build_authorize_url(state=None, scope=None, redirect_uri=None):
     If redirect_uri is not provided, uses COGNITO_REDIRECT_URI from settings.
     Ensure the scopes match what's enabled in your Cognito app client settings.
     The redirect_uri must match exactly what's used in the token exchange.
+    
+    Tries to use the authorization_endpoint from OpenID discovery if available,
+    otherwise falls back to /oauth2/authorize.
     """
     domain = settings.COGNITO_DOMAIN
     client_id = settings.COGNITO_CLIENT_ID
+    
+    if not domain:
+        raise ValueError("COGNITO_DOMAIN is required")
+    if not client_id:
+        raise ValueError("COGNITO_CLIENT_ID is required")
+    
     if redirect_uri is None:
         redirect_uri = settings.COGNITO_REDIRECT_URI
+        if not redirect_uri:
+            raise ValueError("COGNITO_REDIRECT_URI is required")
+    
     # Use scope from parameter, settings, or default
     if scope is None:
         scope = getattr(settings, 'COGNITO_SCOPE', 'openid email')
+    
+    # Try to get authorization_endpoint from discovery document
+    # Fallback to standard /oauth2/authorize path
     base = f"https://{domain}/oauth2/authorize"
+    try:
+        import requests
+        discovery_url = f"https://{domain}/.well-known/openid-configuration"
+        resp = requests.get(discovery_url, timeout=5)
+        if resp.status_code == 200:
+            discovery = resp.json()
+            auth_endpoint = discovery.get('authorization_endpoint')
+            if auth_endpoint:
+                base = auth_endpoint
+    except Exception:
+        # Fallback to standard path if discovery fails
+        pass
+    
     params = {
         'response_type': 'code',
         'client_id': client_id,

@@ -532,14 +532,30 @@ def delete_planting(request, planting_id):
 
 def cognito_login(request):
     """Redirect user to Cognito Hosted UI login."""
+    # Validate required environment variables
+    if not settings.COGNITO_DOMAIN:
+        logger.error('COGNITO_DOMAIN is not configured')
+        return HttpResponse("Cognito domain not configured. Please contact administrator.", status=500)
+    if not settings.COGNITO_CLIENT_ID:
+        logger.error('COGNITO_CLIENT_ID is not configured')
+        return HttpResponse("Cognito client ID not configured. Please contact administrator.", status=500)
+    if not settings.COGNITO_REDIRECT_URI:
+        logger.error('COGNITO_REDIRECT_URI is not configured')
+        return HttpResponse("Cognito redirect URI not configured. Please contact administrator.", status=500)
+    
     from .cognito import build_authorize_url
     # Use the exact redirect_uri from settings to match Cognito configuration
     # This must match exactly what's configured in Cognito App Client settings
     redirect_uri = settings.COGNITO_REDIRECT_URI
     logger.info('Cognito login: Using redirect_uri from settings: %s', redirect_uri)
-    url = build_authorize_url(redirect_uri=redirect_uri)
-    logger.info('Cognito login: Redirecting to Cognito authorize URL')
-    return redirect(url)
+    
+    try:
+        url = build_authorize_url(redirect_uri=redirect_uri)
+        logger.info('Cognito login: Redirecting to Cognito authorize URL: %s', url)
+        return redirect(url)
+    except Exception as e:
+        logger.exception('Error building Cognito authorize URL: %s', e)
+        return HttpResponse(f"Error redirecting to Cognito: {str(e)}", status=500)
 
 
 def cognito_logout(request):
@@ -555,10 +571,22 @@ def cognito_logout(request):
 def cognito_callback(request):
     """Handle callback from Cognito Hosted UI, exchange code for tokens and save user to DynamoDB (best-effort)."""
     import requests
+    from requests.auth import HTTPBasicAuth
     from django.db import OperationalError
 
     logger.info('Cognito callback received for path: %s', request.path)
     logger.info('Cognito callback query params: %s', request.GET.dict())
+
+    # Validate required environment variables
+    if not settings.COGNITO_DOMAIN:
+        logger.error('COGNITO_DOMAIN is not configured')
+        return HttpResponse("Cognito domain not configured. Please contact administrator.", status=500)
+    if not settings.COGNITO_CLIENT_ID:
+        logger.error('COGNITO_CLIENT_ID is not configured')
+        return HttpResponse("Cognito client ID not configured. Please contact administrator.", status=500)
+    if not settings.COGNITO_REDIRECT_URI:
+        logger.error('COGNITO_REDIRECT_URI is not configured')
+        return HttpResponse("Cognito redirect URI not configured. Please contact administrator.", status=500)
 
     error = request.GET.get('error')
     error_description = request.GET.get('error_description')
@@ -577,18 +605,28 @@ def cognito_callback(request):
     redirect_uri = settings.COGNITO_REDIRECT_URI
     logger.info('Cognito callback: Using redirect_uri from settings: %s', redirect_uri)
 
+    # Build token URL using COGNITO_DOMAIN
     token_url = f"https://{settings.COGNITO_DOMAIN}/oauth2/token"
     data = {
         'grant_type': 'authorization_code',
-        'client_id': settings.COGNITO_CLIENT_ID,
         'code': code,
         'redirect_uri': redirect_uri
     }
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    
+    # Use HTTP Basic auth when client secret exists (OAuth2 standard)
+    auth = None
+    if settings.COGNITO_CLIENT_SECRET:
+        auth = HTTPBasicAuth(settings.COGNITO_CLIENT_ID, settings.COGNITO_CLIENT_SECRET)
+        # When using HTTP Basic auth, client_id should not be in the body
+    else:
+        # If no client secret, include client_id in body (for public clients)
+        data['client_id'] = settings.COGNITO_CLIENT_ID
 
     try:
-        response = requests.post(token_url, data=data, headers=headers, auth=(settings.COGNITO_CLIENT_ID, settings.COGNITO_CLIENT_SECRET) if settings.COGNITO_CLIENT_SECRET else None)
-    except Exception as e:
+        logger.info('Cognito callback: Exchanging code for tokens at %s', token_url)
+        response = requests.post(token_url, data=data, headers=headers, auth=auth, timeout=10)
+    except requests.exceptions.RequestException as e:
         logger.exception('Error calling Cognito token endpoint: %s', e)
         return HttpResponse(f"Error fetching tokens: {str(e)}", status=500)
 
