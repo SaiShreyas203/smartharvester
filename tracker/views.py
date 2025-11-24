@@ -21,10 +21,18 @@ from .models import UserProfile
 def _get_calculate_plan():
     """Return a callable to calculate a plan.
 
-    Tries several common function names in `smartharvest_plan.plan` and
-    returns the first callable found. If the module can't be imported or
-    no callable is found, returns a fallback that returns an empty list.
+    First tries built-in plan calculator, then tries external library,
+    finally returns fallback if neither is available.
     """
+    # Try built-in plan calculator first
+    try:
+        from .plan_calculator import calculate_plan
+        logger.info('Using built-in calculate_plan from tracker.plan_calculator')
+        return calculate_plan
+    except Exception as e:
+        logger.debug('Could not import built-in plan calculator: %s', e)
+    
+    # Try external library (smartharvest_plan) as fallback
     try:
         import importlib
         mod = importlib.import_module('smartharvest_plan.plan')
@@ -36,9 +44,11 @@ def _get_calculate_plan():
                     return candidate
         logger.warning('Imported smartharvest_plan.plan but no callable plan function found')
     except Exception as e:
-        logger.warning('Could not import smartharvest_plan.plan: %s', e)
+        logger.debug('Could not import smartharvest_plan.plan: %s', e)
 
+    # Final fallback
     def _fallback(*args, **kwargs):
+        logger.warning('Using fallback plan calculator (returns empty plan)')
         return []
 
     return _fallback
