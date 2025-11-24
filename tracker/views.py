@@ -2493,12 +2493,24 @@ def get_notification_summaries(request):
         
         email_summary += "\nThanks,\nSmartHarvester"
     
-    return JsonResponse({
+    logger.info('📊 get_notification_summaries: Returning %d notifications for user_id=%s', len(all_notifications), user_id)
+    logger.info('📊 Breakdown: %d in-app notifications, %d upcoming task summaries', len(in_app_notifications), len(upcoming_task_summaries))
+    
+    unread_count = len([n for n in all_notifications if not n.get('read', False)])
+    
+    response_data = {
         'success': True,
         'email': user_email,
         'notifications': all_notifications,
         'summaries': upcoming_task_summaries,  # Keep for backward compatibility
         'email_summary': email_summary,
         'count': len(all_notifications),
-        'unread_count': len([n for n in all_notifications if not n.get('read', False)])
-    })
+        'unread_count': unread_count
+    }
+    
+    logger.debug('📊 Response data keys: %s', list(response_data.keys()))
+    logger.debug('📊 Total notifications: %d, Unread: %d', len(all_notifications), unread_count)
+    if all_notifications:
+        logger.debug('📊 Sample notifications: %s', [{'type': n.get('type'), 'title': n.get('title')} for n in all_notifications[:3]])
+    
+    return JsonResponse(response_data)

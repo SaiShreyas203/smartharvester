@@ -519,7 +519,8 @@ def save_notification(user_id: str, notification_type: str, title: str, message:
         
         item = {k: _to_dynamo_decimal(v) for k, v in item.items() if v is not None}
         table.put_item(Item=item)
-        logger.info("Saved notification %s for user %s: %s", notification_id, user_id, title)
+        logger.info("✅ Saved notification %s for user %s: %s", notification_id, user_id, title)
+        logger.debug("📤 Notification item keys: %s", list(item.keys()))
         return notification_id
     except ClientError as e:
         logger.exception("DynamoDB ClientError saving notification: %s", e)
@@ -543,7 +544,7 @@ def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = F
     """
     try:
         table = _table(DYNAMO_NOTIFICATIONS_TABLE)
-        logger.debug("Loading notifications for user_id=%s, limit=%d, unread_only=%s", user_id, limit, unread_only)
+        logger.info("📥 Loading notifications for user_id=%s, limit=%d, unread_only=%s", user_id, limit, unread_only)
         items = []
         
         # Try GSI query first (if user_id-index exists)
@@ -560,10 +561,13 @@ def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = F
             resp = table.query(**scan_kwargs)
             items = resp.get("Items", []) or []
             if items:
-                logger.debug("Loaded %d notifications for user %s via GSI", len(items), user_id)
-                return _convert_notifications_to_python(items)
-        except ClientError:
-            logger.debug("GSI query failed, using scan fallback")
+                logger.info("✅ Loaded %d notifications for user %s via GSI", len(items), user_id)
+                converted = _convert_notifications_to_python(items)
+                logger.debug("📥 Sample notification: %s", converted[0] if converted else 'none')
+                return converted
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            logger.warning("⚠️ GSI query failed (Code: %s), using scan fallback: %s", error_code, str(e))
         
         # Fallback: scan with filter
         scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
@@ -585,8 +589,10 @@ def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = F
         items.sort(key=lambda x: float(x.get("created_at", 0)), reverse=True)
         items = items[:limit]
         
-        logger.debug("Loaded %d notifications for user %s via scan", len(items), user_id)
-        return _convert_notifications_to_python(items)
+        logger.info("✅ Loaded %d notifications for user %s via scan", len(items), user_id)
+        converted = _convert_notifications_to_python(items)
+        logger.debug("📥 Sample notification from scan: %s", converted[0] if converted else 'none')
+        return converted
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         if error_code == 'ResourceNotFoundException':
