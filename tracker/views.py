@@ -61,6 +61,43 @@ def load_plant_data():
         return json.load(f)
 
 
+def normalize_crop_name(crop_name: str, plant_data: dict = None) -> str:
+    """
+    Normalize crop name to match exact key in data.json.
+    Returns the exact key from data.json if found, otherwise returns original crop_name.
+    """
+    if not crop_name:
+        return crop_name
+    
+    if plant_data is None:
+        plant_data = load_plant_data()
+    
+    if not isinstance(plant_data, dict):
+        return crop_name.strip()
+    
+    crop_name_clean = crop_name.strip()
+    
+    # Check exact match first
+    if crop_name_clean in plant_data:
+        return crop_name_clean
+    
+    # Check title case
+    crop_title = crop_name_clean.title()
+    if crop_title in plant_data:
+        return crop_title
+    
+    # Check case-insensitive match
+    crop_lower = crop_name_clean.lower()
+    for key in plant_data.keys():
+        if isinstance(plant_data.get(key), dict) and key.lower() == crop_lower:
+            logger.debug('normalize_crop_name: Normalized "%s" -> "%s"', crop_name, key)
+            return key
+    
+    # If not found, return original (stripped)
+    logger.warning('normalize_crop_name: Could not normalize "%s" to match any plant in data.json', crop_name)
+    return crop_name_clean
+
+
 # Small dynamic importer to try multiple helper names from tracker.dynamodb_helper
 def _get_helper(*names):
     """
@@ -254,12 +291,12 @@ def index(request):
                 continue
 
             # Always regenerate plan using library to ensure it's up-to-date
-            crop_name = planting.get('crop_name', '')
+            crop_name_raw = planting.get('crop_name', '')
             planting_date_obj = planting.get('planting_date')
             plan = planting.get('plan', [])
             
             # Regenerate plan using built-in calculator/library
-            if crop_name and planting_date_obj:
+            if crop_name_raw and planting_date_obj:
                 try:
                     # Ensure planting_date is a date object
                     if isinstance(planting_date_obj, str):
@@ -267,6 +304,15 @@ def index(request):
                     
                     # Always regenerate plan to ensure latest data.json is used
                     plant_data = load_plant_data()
+                    
+                    # Normalize crop_name to match exact key in data.json
+                    crop_name = normalize_crop_name(crop_name_raw, plant_data)
+                    
+                    # Update planting dict with normalized name
+                    if crop_name != crop_name_raw:
+                        planting['crop_name'] = crop_name
+                        logger.info('Normalized crop_name: "%s" -> "%s"', crop_name_raw, crop_name)
+                    
                     calculate = _get_calculate_plan()
                     calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
                     
@@ -689,7 +735,7 @@ def save_planting(request):
             request.session.modified = True
             return redirect('cognito_login')
 
-    crop_name = request.POST.get('crop_name')
+    crop_name_raw = request.POST.get('crop_name')
     planting_date_str = request.POST.get('planting_date')
     # fixed quoting for strftime
     batch_id = request.POST.get('batch_id', f"batch-{_date.today().strftime('%Y%m%d')}")
@@ -710,8 +756,8 @@ def save_planting(request):
             logger.exception("Image upload failed")
 
     # Validate required fields
-    if not crop_name or not planting_date_str:
-        logger.error("Missing required fields in save_planting: crop_name=%s, planting_date_str=%s", crop_name, planting_date_str)
+    if not crop_name_raw or not planting_date_str:
+        logger.error("Missing required fields in save_planting: crop_name=%s, planting_date_str=%s", crop_name_raw, planting_date_str)
         # Return a proper error response instead of redirect to avoid 502
         from django.http import HttpResponseBadRequest
         return HttpResponseBadRequest("Missing required fields: crop_name and planting_date are required")
@@ -724,9 +770,14 @@ def save_planting(request):
         from django.http import HttpResponseBadRequest
         return HttpResponseBadRequest(f"Invalid planting_date format: {planting_date_str}")
 
+    # Normalize crop_name to match exact key in data.json
+    plant_data = load_plant_data()
+    crop_name = normalize_crop_name(crop_name_raw, plant_data)
+    if crop_name != crop_name_raw:
+        logger.info('Normalized crop_name for save: "%s" -> "%s"', crop_name_raw, crop_name)
+
     # Build plan with error handling
     try:
-        plant_data = load_plant_data()
         calculate = _get_calculate_plan()
         calculated_plan = calculate(crop_name, planting_date, plant_data)
     except Exception as e:

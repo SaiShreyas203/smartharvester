@@ -32,18 +32,47 @@ def calculate_plan(crop_name: str, planting_date: date, plant_data: Dict[str, An
     
     # Try new structure first: plant_data is a dict with plant names as keys (e.g., {"Basil": {...}, "Cucumbers": {...}})
     if isinstance(plant_data, dict):
+        # Normalize crop_name: strip whitespace
+        crop_name = crop_name.strip()
+        
         # Check exact match first
         if crop_name in plant_data:
             plant_info = plant_data[crop_name]
-        # Try title case (e.g., "basil" -> "Basil")
+            logger.debug('calculate_plan: Found exact match for "%s"', crop_name)
+        # Try title case (e.g., "basil" -> "Basil", "BELL PEPPERS" -> "Bell Peppers")
         elif crop_name.title() in plant_data:
             plant_info = plant_data[crop_name.title()]
+            logger.debug('calculate_plan: Found title case match for "%s" -> "%s"', crop_name, crop_name.title())
         # Try case-insensitive match
         else:
-            crop_name_lower = crop_name.lower()
+            crop_name_lower = crop_name.lower().strip()
             for key, value in plant_data.items():
-                if key.lower() == crop_name_lower:
+                if isinstance(value, dict) and key.lower() == crop_name_lower:
                     plant_info = value
+                    logger.debug('calculate_plan: Found case-insensitive match for "%s" -> "%s"', crop_name, key)
+                    break
+        
+        # If still not found, try fuzzy matching (handle singular/plural variations)
+        if not plant_info:
+            crop_name_lower = crop_name.lower().strip()
+            for key, value in plant_data.items():
+                if not isinstance(value, dict):
+                    continue
+                key_lower = key.lower()
+                # Try exact lowercase match
+                if key_lower == crop_name_lower:
+                    plant_info = value
+                    logger.debug('calculate_plan: Found fuzzy match (exact lowercase) for "%s" -> "%s"', crop_name, key)
+                    break
+                # Try singular/plural variations (e.g., "Tomato" vs "Tomatoes")
+                if crop_name_lower.rstrip('s') == key_lower.rstrip('s'):
+                    plant_info = value
+                    logger.debug('calculate_plan: Found fuzzy match (singular/plural) for "%s" -> "%s"', crop_name, key)
+                    break
+                # Try partial match (e.g., "Bell Pepper" matches "Bell Peppers")
+                if crop_name_lower in key_lower or key_lower in crop_name_lower:
+                    plant_info = value
+                    logger.debug('calculate_plan: Found fuzzy match (partial) for "%s" -> "%s"', crop_name, key)
                     break
         
         # If not found and 'plants' key exists, try old structure
@@ -51,6 +80,7 @@ def calculate_plan(crop_name: str, planting_date: date, plant_data: Dict[str, An
             for plant in plant_data['plants']:
                 if plant.get('name', '').lower() == crop_name.lower():
                     plant_info = plant
+                    logger.debug('calculate_plan: Found match in old structure for "%s"', crop_name)
                     break
     
     if not plant_info:
