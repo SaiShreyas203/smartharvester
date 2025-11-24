@@ -429,17 +429,24 @@ def add_planting_view(request):
     
     # Require authentication - redirect to Cognito login if no user found
     if not is_authenticated:
-        logger.warning('add_planting_view: No authenticated user found, redirecting to Cognito login')
-        logger.debug('add_planting_view: Session keys: %s', list(request.session.keys()))
-        logger.debug('add_planting_view: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
-        if hasattr(request, 'cognito_user_id'):
-            logger.debug('add_planting_view: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
-        # Save the current URL so we can redirect back after login
-        request.session['next_url'] = request.path
-        request.session.modified = True
-        logger.info('add_planting_view: Saved next_url=%s for redirect after login', request.path)
-        # Redirect to Cognito login instead of Django login
-        return redirect('cognito_login')
+        # Final check: if there's a token in session, user is authenticated even if we can't extract user_id
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            # User has a token - they're authenticated, allow access
+            is_authenticated = True
+            logger.info('add_planting_view: Found token in session, allowing access even without user_id')
+        else:
+            logger.warning('add_planting_view: No authenticated user found, redirecting to Cognito login')
+            logger.debug('add_planting_view: Session keys: %s', list(request.session.keys()))
+            logger.debug('add_planting_view: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
+            if hasattr(request, 'cognito_user_id'):
+                logger.debug('add_planting_view: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
+            # Save the current URL so we can redirect back after login
+            request.session['next_url'] = request.path
+            request.session.modified = True
+            logger.info('add_planting_view: Saved next_url=%s for redirect after login', request.path)
+            # Redirect to Cognito login instead of Django login
+            return redirect('cognito_login')
     
     logger.info('add_planting_view: User authenticated (user_id=%s), rendering add planting form', user_id)
     plant_data = load_plant_data()
@@ -529,8 +536,27 @@ def save_planting(request):
 
     # Require authentication - redirect to login if no user found
     if not user_id:
-        logger.warning('save_planting: No authenticated user found, redirecting to login')
-        return redirect('login')
+        # Final check: if there's a token in session, try to extract user_id from it
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            try:
+                import jwt as pyjwt
+                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                user_id = decoded.get('sub')
+                if not username:
+                    username = (
+                        decoded.get('cognito:username') or
+                        decoded.get('preferred_username') or
+                        decoded.get('username') or
+                        decoded.get('email')
+                    )
+                logger.info('save_planting: Extracted user_id from session token: %s', user_id)
+            except Exception:
+                logger.warning('save_planting: No authenticated user found and cannot extract from token, redirecting to login')
+                return redirect('cognito_login')
+        else:
+            logger.warning('save_planting: No authenticated user found, redirecting to login')
+            return redirect('cognito_login')
 
     crop_name = request.POST.get('crop_name')
     planting_date_str = request.POST.get('planting_date')
@@ -652,8 +678,20 @@ def edit_planting_view(request, planting_id):
     
     # Require authentication
     if not user_id:
-        logger.warning('edit_planting_view: No authenticated user found, redirecting to login')
-        return redirect('login')
+        # Final check: if there's a token in session, extract user_id from it
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            try:
+                import jwt as pyjwt
+                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                user_id = decoded.get('sub')
+                logger.info('edit_planting_view: Extracted user_id from session token: %s', user_id)
+            except Exception:
+                logger.warning('edit_planting_view: No authenticated user found, redirecting to login')
+                return redirect('cognito_login')
+        else:
+            logger.warning('edit_planting_view: No authenticated user found, redirecting to login')
+            return redirect('cognito_login')
     
     load_user_plantings = _get_helper('load_user_plantings')
 
@@ -756,8 +794,27 @@ def update_planting(request, planting_id):
     
     # Require authentication
     if not user_id:
-        logger.warning('update_planting: No authenticated user found, redirecting to login')
-        return redirect('login')
+        # Final check: if there's a token in session, extract user_id from it
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            try:
+                import jwt as pyjwt
+                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                user_id = decoded.get('sub')
+                if not username:
+                    username = (
+                        decoded.get('cognito:username') or
+                        decoded.get('preferred_username') or
+                        decoded.get('username') or
+                        decoded.get('email')
+                    )
+                logger.info('update_planting: Extracted user_id from session token: %s', user_id)
+            except Exception:
+                logger.warning('update_planting: No authenticated user found, redirecting to login')
+                return redirect('cognito_login')
+        else:
+            logger.warning('update_planting: No authenticated user found, redirecting to login')
+            return redirect('cognito_login')
 
     table = dynamo_resource().Table(DYNAMO_PLANTINGS_TABLE)
 
@@ -839,8 +896,20 @@ def delete_planting(request, planting_id):
     
     # Require authentication
     if not user_id:
-        logger.warning('delete_planting: No authenticated user found, redirecting to login')
-        return redirect('login')
+        # Final check: if there's a token in session, extract user_id from it
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            try:
+                import jwt as pyjwt
+                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                user_id = decoded.get('sub')
+                logger.info('delete_planting: Extracted user_id from session token: %s', user_id)
+            except Exception:
+                logger.warning('delete_planting: No authenticated user found, redirecting to login')
+                return redirect('cognito_login')
+        else:
+            logger.warning('delete_planting: No authenticated user found, redirecting to login')
+            return redirect('cognito_login')
 
     load_user_plantings = _get_helper('load_user_plantings')
     delete_planting_from_dynamodb = _get_helper('delete_planting_from_dynamodb', 'delete_planting')
