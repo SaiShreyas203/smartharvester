@@ -705,16 +705,63 @@
     if (notificationBtn) {
         notificationBtn.addEventListener('click', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             openNotificationModal();
         });
         
         // Right-click to toggle notifications
         notificationBtn.addEventListener('contextmenu', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             toggleNotifications();
         });
         
         notificationBtn.title = 'Click to view notifications | Right-click to toggle on/off';
+    }
+    
+    // Load notifications on page load to update badge (silently, without opening modal)
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updateNotificationBadgeSilently);
+    } else {
+        // DOM already loaded
+        updateNotificationBadgeSilently();
+    }
+    
+    // Function to silently update notification badge without opening modal
+    async function updateNotificationBadgeSilently() {
+        try {
+            const response = await fetch('{% url "get_notification_summaries" %}', {
+                method: 'GET',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                credentials: 'same-origin'
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success !== false && data.notifications !== undefined) {
+                    const notifications = data.notifications || [];
+                    const unreadCount = data.unread_count || 0;
+                    
+                    // Update badge on notification button
+                    const btnBadge = document.getElementById('notification-btn-badge');
+                    if (btnBadge) {
+                        if (unreadCount > 0 || notifications.length > 0) {
+                            const displayCount = unreadCount > 0 ? unreadCount : notifications.length;
+                            btnBadge.textContent = displayCount > 99 ? '99+' : displayCount;
+                            btnBadge.style.display = 'flex';
+                            btnBadge.style.background = unreadCount > 0 ? '#ff6b6b' : 'var(--primary-color)';
+                            console.log(`🔔 Badge updated: ${displayCount} notification(s), ${unreadCount} unread`);
+                        } else {
+                            btnBadge.style.display = 'none';
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error updating notification badge:', error);
+        }
     }
 
     function closeDashboard() {
@@ -736,13 +783,17 @@
         const emailSummaryText = document.getElementById('email-summary-text');
         const countBadge = document.getElementById('notification-count-badge');
         
-        if (!contentDiv) {
-            console.error('❌ notification-content div not found!');
-            return;
-        }
+        // If modal is not open, just update badge (silent load)
+        const isModalOpen = contentDiv && contentDiv.closest('#notification-modal') && 
+                           contentDiv.closest('#notification-modal').style.display === 'flex';
         
-        // Show loading state
-        contentDiv.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;"><span class="loading-spinner" style="display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite;"></span> Loading notifications...</p>';
+        if (!contentDiv) {
+            // Content div doesn't exist yet (modal not opened), just update badge silently
+            console.log('🔔 Loading notifications silently for badge update...');
+        } else if (isModalOpen) {
+            // Show loading state only if modal is open
+            contentDiv.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;"><span class="loading-spinner" style="display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite;"></span> Loading notifications...</p>';
+        }
         
         try {
             console.log('🔔 Fetching notifications from API...');
@@ -766,6 +817,8 @@
                 const unreadCount = data.unread_count || 0;
                 
                 console.log(`📊 Total notifications: ${notifications.length}, Unread: ${unreadCount}`);
+                
+                // Always update badge (even if modal is not open)
                 
                 // Update badge in modal header
                 if (countBadge) {
@@ -863,6 +916,7 @@
                                     ${notif.due_date ? `<span>⏰ Due: ${notif.due_date}</span>` : ''}
                                     ${notif.crop_name ? `<span>🌱 ${notif.crop_name}</span>` : ''}
                                 </div>
+                                ${notif.planting_id ? `<div style="color: var(--text-muted); font-size: 0.8em; margin-top: 4px;">ID: ${notif.planting_id}</div>` : ''}
                             </div>
                         `;
                     });

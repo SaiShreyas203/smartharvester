@@ -477,10 +477,92 @@ def get_user_notification_preference(username_or_userid: str) -> bool:
 
 
 # ----- In-App Notifications helpers -----
-def save_notification(user_id: str, notification_type: str, title: str, message: str, 
-                     planting_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
+def _save_notification_to_session(request, user_id: str, notification_id: str, notification_type: str, 
+                                  title: str, message: str, planting_id: Optional[str] = None, 
+                                  metadata: Optional[Dict[str, Any]] = None) -> bool:
     """
-    Save an in-app notification to the notifications table.
+    Save notification to Django session (local storage fallback).
+    Returns True if successful.
+    """
+    try:
+        import time
+        
+        if not hasattr(request, 'session'):
+            logger.warning("Request has no session - cannot save notification to session")
+            return False
+        
+        # Get or create user's notification list in session
+        session_key = f'notifications_{user_id}'
+        notifications = request.session.get(session_key, [])
+        
+        # Create notification dict
+        notification = {
+            'notification_id': notification_id,
+            'user_id': str(user_id),
+            'notification_type': notification_type,
+            'title': title,
+            'message': message,
+            'created_at': int(time.time()),
+            'read': False,
+        }
+        
+        if planting_id:
+            notification['planting_id'] = str(planting_id)
+        
+        if metadata:
+            notification.update({k: str(v) if isinstance(v, (int, float, bool)) else v 
+                               for k, v in metadata.items() if v is not None})
+        
+        # Add to list (prepend for newest first)
+        notifications.insert(0, notification)
+        
+        # Keep only last 100 notifications per user
+        notifications = notifications[:100]
+        
+        # Save back to session
+        request.session[session_key] = notifications
+        request.session.modified = True
+        
+        logger.info("✅ Saved notification %s to session for user %s: %s", notification_id, user_id, title)
+        return True
+    except Exception as e:
+        logger.exception("Error saving notification to session: %s", e)
+        return False
+
+
+def _load_notifications_from_session(request, user_id: str, limit: int = 50, unread_only: bool = False) -> List[Dict[str, Any]]:
+    """
+    Load notifications from Django session (local storage fallback).
+    Returns list of notification dictionaries.
+    """
+    try:
+        if not hasattr(request, 'session'):
+            logger.warning("Request has no session - cannot load notifications from session")
+            return []
+        
+        session_key = f'notifications_{user_id}'
+        notifications = request.session.get(session_key, [])
+        
+        # Filter unread if requested
+        if unread_only:
+            notifications = [n for n in notifications if not n.get('read', False)]
+        
+        # Sort by created_at descending (newest first) and limit
+        notifications.sort(key=lambda x: x.get('created_at', 0), reverse=True)
+        notifications = notifications[:limit]
+        
+        logger.info("✅ Loaded %d notifications from session for user %s", len(notifications), user_id)
+        return notifications
+    except Exception as e:
+        logger.exception("Error loading notifications from session: %s", e)
+        return []
+
+
+def save_notification(user_id: str, notification_type: str, title: str, message: str, 
+                     planting_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None,
+                     request=None) -> Optional[str]:
+    """
+    Save an in-app notification. Tries DynamoDB first, falls back to session storage.
     
     Args:
         user_id: The user ID (Cognito sub or django_<pk>)
@@ -489,121 +571,164 @@ def save_notification(user_id: str, notification_type: str, title: str, message:
         message: Notification message
         planting_id: Optional planting_id if related to a specific planting
         metadata: Optional additional data (e.g., crop_name, due_date, etc.)
+        request: Django request object (optional, needed for session fallback)
     
     Returns:
         Notification ID if successful, None otherwise
     """
-    try:
-        table = _table(DYNAMO_NOTIFICATIONS_TABLE)
-        notification_id = str(uuid.uuid4())
-        import time
-        timestamp = Decimal(str(int(time.time())))
+    notification_id = str(uuid.uuid4())
+    
+    # Try DynamoDB first
+    use_local = os.getenv("USE_LOCAL_NOTIFICATIONS", "False").lower() == "true"
+    
+    if not use_local:
+        try:
+            table = _table(DYNAMO_NOTIFICATIONS_TABLE)
+            import time
+            timestamp = Decimal(str(int(time.time())))
+            
+            item = {
+                'notification_id': notification_id,
+                'user_id': str(user_id),
+                'notification_type': notification_type,
+                'title': title,
+                'message': message,
+                'created_at': timestamp,
+                'read': False,
+            }
+            
+            if planting_id:
+                item['planting_id'] = str(planting_id)
+            
+            if metadata:
+                for k, v in metadata.items():
+                    if v is not None:
+                        item[k] = str(v) if isinstance(v, (int, float, bool)) else v
+            
+            item = {k: _to_dynamo_decimal(v) for k, v in item.items() if v is not None}
+            table.put_item(Item=item)
+            logger.info("✅ Saved notification %s to DynamoDB for user %s: %s", notification_id, user_id, title)
+            logger.debug("📤 Notification item keys: %s", list(item.keys()))
+            return notification_id
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            if error_code == 'ResourceNotFoundException':
+                logger.warning("⚠️ Notifications table not found in DynamoDB, falling back to session storage")
+                use_local = True
+            else:
+                logger.warning("⚠️ DynamoDB error saving notification (Code: %s), falling back to session: %s", error_code, str(e))
+                use_local = True
+        except Exception as e:
+            logger.warning("⚠️ Error saving to DynamoDB, falling back to session: %s", str(e))
+            use_local = True
+    
+    # Fallback to session storage
+    if use_local or request is not None:
+        if request is None:
+            logger.warning("⚠️ Session storage requested but no request object provided")
+            return None
         
-        item = {
-            'notification_id': notification_id,
-            'user_id': str(user_id),
-            'notification_type': notification_type,
-            'title': title,
-            'message': message,
-            'created_at': timestamp,
-            'read': False,
-        }
-        
-        if planting_id:
-            item['planting_id'] = str(planting_id)
-        
-        if metadata:
-            for k, v in metadata.items():
-                if v is not None:
-                    item[k] = str(v) if isinstance(v, (int, float, bool)) else v
-        
-        item = {k: _to_dynamo_decimal(v) for k, v in item.items() if v is not None}
-        table.put_item(Item=item)
-        logger.info("✅ Saved notification %s for user %s: %s", notification_id, user_id, title)
-        logger.debug("📤 Notification item keys: %s", list(item.keys()))
-        return notification_id
-    except ClientError as e:
-        logger.exception("DynamoDB ClientError saving notification: %s", e)
-        return None
-    except Exception as e:
-        logger.exception("Error saving notification: %s", e)
-        return None
+        success = _save_notification_to_session(request, user_id, notification_id, notification_type, 
+                                              title, message, planting_id, metadata)
+        if success:
+            return notification_id
+    
+    logger.warning("⚠️ Failed to save notification - no storage available")
+    return None
 
 
-def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = False) -> List[Dict[str, Any]]:
+def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = False, request=None) -> List[Dict[str, Any]]:
     """
-    Load notifications for a user from the notifications table.
+    Load notifications for a user. Tries DynamoDB first, falls back to session storage.
     
     Args:
         user_id: The user ID
         limit: Maximum number of notifications to return
         unread_only: If True, only return unread notifications
+        request: Django request object (optional, needed for session fallback)
     
     Returns:
         List of notification dictionaries, sorted by created_at (newest first)
     """
-    try:
-        table = _table(DYNAMO_NOTIFICATIONS_TABLE)
-        logger.info("📥 Loading notifications for user_id=%s, limit=%d, unread_only=%s", user_id, limit, unread_only)
-        items = []
-        
-        # Try GSI query first (if user_id-index exists)
+    # Check if we should use local storage
+    use_local = os.getenv("USE_LOCAL_NOTIFICATIONS", "False").lower() == "true"
+    
+    # Try DynamoDB first (unless explicitly using local)
+    if not use_local:
         try:
-            scan_kwargs = {
-                "IndexName": "user_id-index",
-                "KeyConditionExpression": Key("user_id").eq(str(user_id)),
-                "Limit": limit,
-                "ScanIndexForward": False,  # Sort descending (newest first)
-            }
-            if unread_only:
-                scan_kwargs["FilterExpression"] = Attr("read").eq(False)
+            table = _table(DYNAMO_NOTIFICATIONS_TABLE)
+            logger.info("📥 Loading notifications from DynamoDB for user_id=%s, limit=%d, unread_only=%s", user_id, limit, unread_only)
+            items = []
             
-            resp = table.query(**scan_kwargs)
-            items = resp.get("Items", []) or []
-            if items:
-                logger.info("✅ Loaded %d notifications for user %s via GSI", len(items), user_id)
-                converted = _convert_notifications_to_python(items)
-                logger.debug("📥 Sample notification: %s", converted[0] if converted else 'none')
-                return converted
+            # Try GSI query first (if user_id-index exists)
+            try:
+                scan_kwargs = {
+                    "IndexName": "user_id-index",
+                    "KeyConditionExpression": Key("user_id").eq(str(user_id)),
+                    "Limit": limit,
+                    "ScanIndexForward": False,  # Sort descending (newest first)
+                }
+                if unread_only:
+                    scan_kwargs["FilterExpression"] = Attr("read").eq(False)
+                
+                resp = table.query(**scan_kwargs)
+                items = resp.get("Items", []) or []
+                if items:
+                    logger.info("✅ Loaded %d notifications for user %s via GSI", len(items), user_id)
+                    converted = _convert_notifications_to_python(items)
+                    logger.debug("📥 Sample notification: %s", converted[0] if converted else 'none')
+                    return converted
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                logger.warning("⚠️ GSI query failed (Code: %s), using scan fallback: %s", error_code, str(e))
+            
+            # Fallback: scan with filter
+            scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
+            if unread_only:
+                scan_kwargs["FilterExpression"] = scan_kwargs["FilterExpression"] & Attr("read").eq(False)
+            
+            start_key = None
+            while len(items) < limit:
+                if start_key:
+                    scan_kwargs["ExclusiveStartKey"] = start_key
+                resp = table.scan(**scan_kwargs)
+                batch = resp.get("Items", []) or []
+                items.extend(batch)
+                start_key = resp.get("LastEvaluatedKey")
+                if not start_key:
+                    break
+            
+            # Sort by created_at descending and limit
+            items.sort(key=lambda x: float(x.get("created_at", 0)), reverse=True)
+            items = items[:limit]
+            
+            logger.info("✅ Loaded %d notifications for user %s via scan", len(items), user_id)
+            converted = _convert_notifications_to_python(items)
+            logger.debug("📥 Sample notification from scan: %s", converted[0] if converted else 'none')
+            return converted
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-            logger.warning("⚠️ GSI query failed (Code: %s), using scan fallback: %s", error_code, str(e))
+            if error_code == 'ResourceNotFoundException':
+                logger.warning("⚠️ Notifications table '%s' not found in DynamoDB, falling back to session storage", DYNAMO_NOTIFICATIONS_TABLE)
+                use_local = True
+            else:
+                logger.warning("⚠️ DynamoDB error loading notifications (Code: %s), falling back to session: %s", error_code, str(e))
+                use_local = True
+        except Exception as e:
+            logger.warning("⚠️ Error loading from DynamoDB, falling back to session: %s", str(e))
+            use_local = True
+    
+    # Fallback to session storage
+    if use_local or request is not None:
+        if request is None:
+            logger.warning("⚠️ Session storage requested but no request object provided")
+            return []
         
-        # Fallback: scan with filter
-        scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
-        if unread_only:
-            scan_kwargs["FilterExpression"] = scan_kwargs["FilterExpression"] & Attr("read").eq(False)
-        
-        start_key = None
-        while len(items) < limit:
-            if start_key:
-                scan_kwargs["ExclusiveStartKey"] = start_key
-            resp = table.scan(**scan_kwargs)
-            batch = resp.get("Items", []) or []
-            items.extend(batch)
-            start_key = resp.get("LastEvaluatedKey")
-            if not start_key:
-                break
-        
-        # Sort by created_at descending and limit
-        items.sort(key=lambda x: float(x.get("created_at", 0)), reverse=True)
-        items = items[:limit]
-        
-        logger.info("✅ Loaded %d notifications for user %s via scan", len(items), user_id)
-        converted = _convert_notifications_to_python(items)
-        logger.debug("📥 Sample notification from scan: %s", converted[0] if converted else 'none')
-        return converted
-    except ClientError as e:
-        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-        if error_code == 'ResourceNotFoundException':
-            logger.error("❌ Notifications table '%s' does not exist in DynamoDB!", DYNAMO_NOTIFICATIONS_TABLE)
-            logger.error("Run: python scripts/create_notifications_table.py to create it.")
-        else:
-            logger.exception("DynamoDB ClientError loading notifications: %s (Code: %s)", e, error_code)
-        return []
-    except Exception as e:
-        logger.exception("Error loading notifications: %s", e)
-        return []
+        logger.info("📥 Loading notifications from session for user_id=%s", user_id)
+        return _load_notifications_from_session(request, user_id, limit, unread_only)
+    
+    logger.warning("⚠️ No storage available for notifications")
+    return []
 
 
 def _convert_notifications_to_python(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

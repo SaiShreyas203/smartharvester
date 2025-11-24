@@ -979,31 +979,29 @@ def save_planting(request):
     logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
                 crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
 
-    # Create in-app notification when planting is saved
+    # Create in-app notification when planting is saved (works locally with session storage)
     try:
         from .dynamodb_helper import save_notification
         planting_id_for_notification = returned_id if returned_id else new_planting.get('planting_id') or local_planting_id
         if user_id:
             logger.info('🔔 Attempting to create in-app notification for user_id=%s, crop_name=%s', user_id, crop_name)
             notification_id = save_notification(
-                user_id=user_id,
+                user_id=str(user_id).strip(),
                 notification_type='plant_added',
                 title=f'Planting Added: {crop_name}',
                 message=f'You\'ve successfully added {crop_name}. Planting date: {planting_date.strftime("%B %d, %Y")}.',
                 planting_id=str(planting_id_for_notification),
-                metadata={'crop_name': crop_name, 'planting_date': planting_date.isoformat()}
+                metadata={'crop_name': crop_name, 'planting_date': planting_date.isoformat()},
+                request=request  # Pass request for session fallback
             )
             if notification_id:
                 logger.info('✅ Created in-app notification for new planting: notification_id=%s, user_id=%s', notification_id, user_id)
             else:
-                logger.warning('⚠️ save_notification returned None - notification not created. Check if notifications table exists in DynamoDB.')
-                logger.warning('Run: python scripts/create_notifications_table.py to create the table.')
+                logger.warning('⚠️ save_notification returned None - notification not created.')
         else:
             logger.warning('⚠️ No user_id available - skipping in-app notification creation')
     except Exception as e:
         logger.exception('❌ Error creating in-app notification for new planting: %s', e)
-        logger.error('This might be because the notifications table does not exist in DynamoDB.')
-        logger.error('Run: python scripts/create_notifications_table.py to create it.')
         # Don't fail the request if notification creation fails
 
     # Send SNS email notification when planting is saved
@@ -1363,12 +1361,13 @@ def update_planting(request, planting_id):
             from .dynamodb_helper import save_notification
             if user_id:
                 notification_id = save_notification(
-                    user_id=user_id,
+                    user_id=str(user_id).strip(),
                     notification_type='plant_edited',
                     title=f'Planting Updated: {updated_crop_name}',
                     message=f'You\'ve successfully updated {updated_crop_name}. Changes have been saved.',
                     planting_id=str(planting_id),
-                    metadata={'crop_name': updated_crop_name}
+                    metadata={'crop_name': updated_crop_name},
+                    request=request  # Pass request for session fallback
                 )
                 if notification_id:
                     logger.info('✅ Created in-app notification for updated planting: %s', notification_id)
@@ -1591,12 +1590,13 @@ def delete_planting(request, planting_id):
             from .dynamodb_helper import save_notification
             if user_id:
                 notification_id = save_notification(
-                    user_id=user_id,
+                    user_id=str(user_id).strip(),
                     notification_type='plant_deleted',
                     title=f'Planting Deleted: {crop_name_to_delete}',
                     message=f'You\'ve successfully deleted {crop_name_to_delete}.',
                     planting_id=str(actual_planting_id) if actual_planting_id else None,
-                    metadata={'crop_name': crop_name_to_delete}
+                    metadata={'crop_name': crop_name_to_delete},
+                    request=request  # Pass request for session fallback
                 )
                 if notification_id:
                     logger.info('✅ Created in-app notification for deleted planting: %s', notification_id)
@@ -2291,21 +2291,19 @@ def get_notification_summaries(request):
     # Log user_id being used for debugging
     logger.info('🔍 get_notification_summaries: Using user_id=%s, username=%s, email=%s', user_id, username, user_email)
     
-    # Load in-app notifications from DynamoDB
+    # Load in-app notifications (works locally with session storage)
     in_app_notifications = []
     try:
         from .dynamodb_helper import load_user_notifications
         logger.info('📥 Attempting to load notifications for user_id=%s', user_id)
-        in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False)
+        in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False, request=request)
         logger.info('✅ Loaded %d in-app notifications for user %s', len(in_app_notifications), user_id)
         if in_app_notifications:
             logger.info('📋 Sample notification: %s', in_app_notifications[0] if in_app_notifications else 'none')
         else:
-            logger.warning('⚠️ No notifications found for user_id=%s. Checking if any notifications exist in table...', user_id)
+            logger.info('ℹ️ No notifications found for user_id=%s', user_id)
     except Exception as e:
         logger.exception('❌ Error loading in-app notifications: %s', e)
-        logger.error('This might be because the notifications table does not exist in DynamoDB.')
-        logger.error('Run: python scripts/create_notifications_table.py to create it.')
         # Continue even if notifications can't be loaded
     
     # Load user's plantings for upcoming tasks
@@ -2368,7 +2366,7 @@ def get_notification_summaries(request):
                                    and n.get('task') == task_name]
                         if not existing:
                             notification_id = save_notification(
-                                user_id=user_id,
+                                user_id=str(user_id).strip(),
                                 notification_type='step_reminder',
                                 title=f'{task_name} - {crop_name}',
                                 message=f'{task_name} for {crop_name} is due {days_until} day(s) from now ({task_due_date.isoformat()}).',
@@ -2378,7 +2376,8 @@ def get_notification_summaries(request):
                                     'task': task_name,
                                     'due_date': task_due_date.isoformat(),
                                     'days_until': days_until
-                                }
+                                },
+                                request=request  # Pass request for session fallback
                             )
                             if notification_id:
                                 logger.info('✅ Created step reminder notification: %s', notification_id)
@@ -2409,7 +2408,7 @@ def get_notification_summaries(request):
                         try:
                             from .dynamodb_helper import save_notification
                             notification_id = save_notification(
-                                user_id=user_id,
+                                user_id=str(user_id).strip(),
                                 notification_type='harvest_reminder',
                                 title=f'Harvest Reminder: {crop_name}',
                                 message=f'{crop_name} is ready to harvest in {days_until_harvest} day(s) ({harvest_date_obj.isoformat()}).',
@@ -2418,7 +2417,8 @@ def get_notification_summaries(request):
                                     'crop_name': crop_name,
                                     'harvest_date': harvest_date_obj.isoformat(),
                                     'days_until': days_until_harvest
-                                }
+                                },
+                                request=request  # Pass request for session fallback
                             )
                             if notification_id:
                                 logger.info('✅ Created harvest reminder notification: %s', notification_id)
@@ -2434,7 +2434,7 @@ def get_notification_summaries(request):
     # Reload notifications to include newly created ones
     try:
         from .dynamodb_helper import load_user_notifications
-        in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False)
+        in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False, request=request)
     except Exception:
         pass
     
@@ -2502,7 +2502,12 @@ def get_notification_summaries(request):
         email_summary += "\nThanks,\nSmartHarvester"
     
     logger.info('📊 get_notification_summaries: Returning %d notifications for user_id=%s', len(all_notifications), user_id)
-    logger.info('📊 Breakdown: %d in-app notifications, %d upcoming task summaries', len(in_app_notifications), len(upcoming_task_summaries))
+    logger.info('📊 Breakdown: %d in-app notifications loaded, %d upcoming task summaries', len(in_app_notifications), len(upcoming_task_summaries))
+    if in_app_notifications:
+        logger.info('📋 First notification sample: type=%s, title=%s, created_at=%s', 
+                   in_app_notifications[0].get('notification_type'), 
+                   in_app_notifications[0].get('title'),
+                   in_app_notifications[0].get('created_at'))
     
     unread_count = len([n for n in all_notifications if not n.get('read', False)])
     
