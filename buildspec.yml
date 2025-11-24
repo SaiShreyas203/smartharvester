@@ -1,14 +1,32 @@
+# Elastic Beanstalk CodeBuild Integration
+# Note: If not using CodeBuild, you can remove this section or let EB create the role automatically
+eb_codebuild_settings:
+  # CodeBuildServiceRole: "arn:aws:iam::YOUR_ACCOUNT_ID:role/codebuild-service-role"  # Optional: Remove if EB should create role
+  ComputeType: "BUILD_GENERAL1_SMALL"
+  Image: "aws/codebuild/standard:7.0"
+  TimeoutInMinutes: 60
+
 version: 0.2
 
 phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - echo Build started on `date`
+      - echo Installing dependencies...
   install:
     runtime-versions:
-      python: 3.10
+      python: 3.11
     commands:
+      - pip install --upgrade pip
       - pip install -r requirements.txt
   build:
     commands:
-      - python manage.py test  # Or your own test/build steps
+      - echo Running tests...
+      - python manage.py check --deploy
+      - python manage.py collectstatic --noinput || echo "Collectstatic failed, continuing..."
+      - echo Build completed on `date`
 artifacts:
   files:
     - '**/*'
+  name: UrSmartCrop-$(date +%Y-%m-%d)

@@ -1,0 +1,62 @@
+# Elastic Beanstalk ignore file
+# Files and directories to exclude from deployment
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+/media
+/staticfiles
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation (optional - remove if you want docs in deployment)
+docs/
+*.md
+!README.md
+
+# Scripts (optional - remove if you need scripts in deployment)
+scripts/
+
+# Lambda functions (deploy separately)
+lambda/
+
+# Infrastructure templates
+infrastructure.yml
+buildspec.yml
+
+# Environment files
+.env
+.env.local
+*.env
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
