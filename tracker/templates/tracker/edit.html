@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self';">
     <title>{% if is_editing %}Edit Planting{% else %}Add a New Planting{% endif %}</title>
     <style>
         :root {
@@ -73,7 +74,7 @@
             {% csrf_token %}
             
             <label for="crop-select">Choose a crop:</label>
-            <select name="crop_name" id="crop-select" required>
+            <select name="crop_name" id="crop-select" required autocomplete="off">
                 <option value="" disabled {% if not is_editing %}selected{% endif %}>--Please choose a crop--</option>
                 {% for name in plant_names %}
                     <option value="{{ name }}" {% if is_editing and planting.crop_name == name %}selected{% endif %}>{{ name }}</option>
@@ -81,16 +82,16 @@
             </select>
 
             <label for="planting-date">Planting Date:</label>
-            <input type="date" id="planting-date" name="planting_date" value="{% if is_editing %}{{ planting.planting_date_str|default:planting.planting_date|date:'Y-m-d' }}{% endif %}" required>
+            <input type="date" id="planting-date" name="planting_date" value="{% if is_editing %}{{ planting.planting_date_str|default:planting.planting_date|date:'Y-m-d' }}{% endif %}" required autocomplete="off">
 
             <label for="batch-id">Batch ID (Optional):</label>
-            <input type="text" id="batch-id" name="batch_id" value="{% if is_editing %}{{ planting.batch_id }}{% endif %}">
+            <input type="text" id="batch-id" name="batch_id" value="{% if is_editing %}{{ planting.batch_id }}{% endif %}" autocomplete="off">
 
             <label for="notes">Notes:</label>
-            <textarea id="notes" name="notes">{% if is_editing %}{{ planting.notes }}{% endif %}</textarea>
+            <textarea id="notes" name="notes" autocomplete="off" aria-label="Notes"></textarea>
 
             <label for="image">Image (optional):</label>
-            <input type="file" id="image" name="image" accept="image/*">
+            <input type="file" id="image" name="image" accept="image/*" autocomplete="off" aria-label="Plant image">
             {% if is_editing and planting.image_url %}
                 <br>
                 <strong>Current Image:</strong><br>

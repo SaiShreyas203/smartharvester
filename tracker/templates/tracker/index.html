@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TerraTrack</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https: blob:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self';">
+    <title>SmartHarvester - Your Crop Tracker</title>
     <style>
         :root {
             --primary-color: #5cb85c; --primary-darker: #4a934a; --text-color: #f8f9fa; --text-muted: #adb5bd;
@@ -464,13 +465,13 @@
             <form action="{% url 'profile' %}" method="post">
                 {% csrf_token %}
                 <div class="form-row">
-                    <input type="text" name="username" placeholder="Username" value="{{ user.username }}" />
+                    <input type="text" name="username" id="profile-username" placeholder="Username" value="{{ user.username }}" autocomplete="username" />
                 </div>
                 <div class="form-row">
-                    <input type="email" name="email" placeholder="Email" value="{{ user.email }}" />
+                    <input type="email" name="email" id="profile-email" placeholder="Email" value="{{ user.email }}" autocomplete="email" />
                 </div>
                 <div class="form-row">
-                    <input type="password" name="password" placeholder="New password (optional)" />
+                    <input type="password" name="password" id="profile-password" placeholder="New password (optional)" autocomplete="new-password" />
                 </div>
                 <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:8px;">
                     <a href="{% url 'logout' %}" class="add-button" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color); text-decoration:none; text-align:center;">

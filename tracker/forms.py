@@ -7,22 +7,22 @@ class SignUpForm(forms.Form):
         max_length=150,
         required=True,
         label='Username',
-        widget=forms.TextInput(attrs={'placeholder':'Username'})
+        widget=forms.TextInput(attrs={'placeholder':'Username', 'autocomplete': 'username'})
     )
     email = forms.EmailField(
         required=True,
         label='Email',
-        widget=forms.EmailInput(attrs={'placeholder':'Email'})
+        widget=forms.EmailInput(attrs={'placeholder':'Email', 'autocomplete': 'email'})
     )
     password1 = forms.CharField(
         label='Password',
-        widget=forms.PasswordInput(attrs={'placeholder':'Password'}),
+        widget=forms.PasswordInput(attrs={'placeholder':'Password', 'autocomplete': 'new-password'}),
         min_length=8,
         required=True,
     )
     password2 = forms.CharField(
         label='Confirm Password',
-        widget=forms.PasswordInput(attrs={'placeholder':'Confirm Password'}),
+        widget=forms.PasswordInput(attrs={'placeholder':'Confirm Password', 'autocomplete': 'new-password'}),
         min_length=8,
         required=True,
     )
@@ -30,7 +30,7 @@ class SignUpForm(forms.Form):
         max_length=100,
         required=True,
         label='Country',
-        widget=forms.TextInput(attrs={'placeholder':'Country'})
+        widget=forms.TextInput(attrs={'placeholder':'Country', 'autocomplete': 'country-name'})
     )
     
     def clean_username(self):
