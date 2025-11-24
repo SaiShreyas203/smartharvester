@@ -733,30 +733,67 @@
             const data = await response.json();
             
             if (data.success) {
-                const summaries = data.summaries || [];
+                const notifications = data.notifications || [];
+                const unreadCount = data.unread_count || 0;
                 
-                if (summaries.length === 0) {
-                    contentDiv.innerHTML = '<p style="color: var(--text-muted);">No upcoming notifications. All caught up! 🎉</p>';
+                if (notifications.length === 0) {
+                    contentDiv.innerHTML = '<p style="color: var(--text-muted);">No notifications. All caught up! 🎉</p>';
                     if (emailSummaryDiv) emailSummaryDiv.style.display = 'none';
                 } else {
                     let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
                     
-                    summaries.forEach((summary) => {
-                        const daysText = summary.days_until === 0 ? 'Today' : 
-                                        summary.days_until === 1 ? 'Tomorrow' : 
-                                        `In ${summary.days_until} days`;
-                        const urgencyColor = summary.days_until === 0 ? '#ff6b6b' : 
-                                           summary.days_until <= 2 ? '#ffa500' : 
-                                           '#5cb85c';
+                    if (unreadCount > 0) {
+                        html += `<div style="background: rgba(92, 184, 92, 0.2); padding: 8px; border-radius: 6px; margin-bottom: 8px; text-align: center; color: var(--primary-color); font-weight: bold;">You have ${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}</div>`;
+                    }
+                    
+                    notifications.forEach((notif) => {
+                        const notifType = notif.type || 'info';
+                        const isRead = notif.read || false;
+                        const opacity = isRead ? '0.6' : '1.0';
+                        
+                        // Determine color based on notification type
+                        let borderColor = '#5cb85c'; // default green
+                        let icon = '🔔';
+                        
+                        if (notifType === 'plant_added') {
+                            borderColor = '#5cb85c';
+                            icon = '➕';
+                        } else if (notifType === 'plant_edited') {
+                            borderColor = '#4a90e2';
+                            icon = '✏️';
+                        } else if (notifType === 'plant_deleted') {
+                            borderColor = '#ff6b6b';
+                            icon = '🗑️';
+                        } else if (notifType === 'harvest_reminder') {
+                            borderColor = '#ffa500';
+                            icon = '🌾';
+                        } else if (notifType === 'step_reminder') {
+                            const daysUntil = notif.days_until || 0;
+                            borderColor = daysUntil === 0 ? '#ff6b6b' : (daysUntil <= 2 ? '#ffa500' : '#5cb85c');
+                            icon = '📅';
+                        }
+                        
+                        const daysText = notif.days_until !== undefined && notif.days_until !== null
+                            ? (notif.days_until === 0 ? 'Today' : 
+                               notif.days_until === 1 ? 'Tomorrow' : 
+                               `In ${notif.days_until} days`)
+                            : '';
                         
                         html += `
-                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; border-left: 4px solid ${urgencyColor};">
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; border-left: 4px solid ${borderColor}; opacity: ${opacity};">
                                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
-                                    <strong style="color: var(--primary-color);">${summary.crop_name}</strong>
-                                    <span style="color: ${urgencyColor}; font-weight: bold; font-size: 0.9em;">${daysText}</span>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="font-size: 1.2em;">${icon}</span>
+                                        <strong style="color: var(--primary-color);">${notif.title || 'Notification'}</strong>
+                                    </div>
+                                    ${daysText ? `<span style="color: ${borderColor}; font-weight: bold; font-size: 0.9em;">${daysText}</span>` : ''}
+                                    ${!isRead ? '<span style="color: var(--primary-color); font-size: 0.8em;">NEW</span>' : ''}
                                 </div>
-                                <div style="color: var(--text-color); margin-bottom: 4px;">${summary.task}</div>
-                                <div style="color: var(--text-muted); font-size: 0.85em;">Due: ${summary.due_date}</div>
+                                <div style="color: var(--text-color); margin-bottom: 4px;">${notif.message || ''}</div>
+                                <div style="color: var(--text-muted); font-size: 0.85em;">
+                                    ${notif.created_at ? `Created: ${notif.created_at}` : ''}
+                                    ${notif.due_date ? ` | Due: ${notif.due_date}` : ''}
+                                </div>
                             </div>
                         `;
                     });
@@ -768,6 +805,8 @@
                     if (data.email_summary && emailSummaryDiv && emailSummaryText) {
                         emailSummaryText.textContent = data.email_summary;
                         emailSummaryDiv.style.display = 'block';
+                    } else {
+                        if (emailSummaryDiv) emailSummaryDiv.style.display = 'none';
                     }
                 }
             } else {

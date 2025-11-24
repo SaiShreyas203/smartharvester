@@ -979,7 +979,27 @@ def save_planting(request):
     logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
                 crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
 
+    # Create in-app notification when planting is saved
+    try:
+        from .dynamodb_helper import save_notification
+        planting_id_for_notification = returned_id if returned_id else new_planting.get('planting_id') or local_planting_id
+        if user_id:
+            notification_id = save_notification(
+                user_id=user_id,
+                notification_type='plant_added',
+                title=f'Planting Added: {crop_name}',
+                message=f'You\'ve successfully added {crop_name}. Planting date: {planting_date.strftime("%B %d, %Y")}.',
+                planting_id=str(planting_id_for_notification),
+                metadata={'crop_name': crop_name, 'planting_date': planting_date.isoformat()}
+            )
+            if notification_id:
+                logger.info('✅ Created in-app notification for new planting: %s', notification_id)
+    except Exception as e:
+        logger.exception('Error creating in-app notification for new planting: %s', e)
+        # Don't fail the request if notification creation fails
+
     # Send SNS email notification when planting is saved
+    logger.info('🔔 SNS Notification: Starting notification process for planting save (user_id=%s, username=%s)', user_id, username)
     try:
         from .sns_helper import publish_notification, ensure_email_subscribed, get_topic_arn
         from .dynamodb_helper import get_user_data_from_token
@@ -987,6 +1007,7 @@ def save_planting(request):
         # Get user's email - try multiple sources
         user_email = None
         email_source = None
+        logger.debug('🔔 SNS Notification: Attempting to retrieve email for user_id=%s, username=%s', user_id, username)
         
         # Try Cognito payload first (most reliable)
         if hasattr(request, 'cognito_payload') and request.cognito_payload:
@@ -1085,14 +1106,17 @@ Happy gardening!
 SmartHarvester Team"""
                 
                 try:
+                    logger.info('🔔 SNS Notification: Attempting to publish to topic %s for email %s', topic_arn, user_email)
+                    logger.debug('🔔 SNS Notification: Subject="%s", Message length=%d chars', subject, len(message))
                     result = publish_notification(subject, message)
                     if result:
                         message_id = result.get('MessageId', 'unknown')
-                        logger.info('✅ Sent SNS notification email for new planting to topic %s (MessageId: %s) - will be delivered to all subscribers including %s', topic_arn, message_id, user_email)
+                        logger.info('✅ SUCCESS: Sent SNS notification email for new planting to topic %s (MessageId: %s) - will be delivered to all subscribers including %s', topic_arn, message_id, user_email)
                     else:
-                        logger.error('❌ Failed to send SNS notification email for new planting - publish_notification returned None')
+                        logger.error('❌ FAILED: publish_notification returned None - SNS publish may have failed silently. Check AWS credentials and SNS topic permissions.')
                 except Exception as e:
-                    logger.exception('❌ Exception while publishing SNS notification: %s', e)
+                    logger.exception('❌ EXCEPTION: Error while publishing SNS notification: %s', e)
+                    logger.error('❌ Exception details: type=%s, args=%s', type(e).__name__, str(e))
         else:
             logger.warning('⚠️ No email found for user (user_id=%s, username=%s) - skipping SNS notification', user_id, username)
             logger.debug('save_planting: Email lookup attempted from: cognito_payload, get_user_data_from_token, django_user')
@@ -1326,6 +1350,24 @@ def update_planting(request, planting_id):
         # Get updated crop name for notification
         updated_crop_name = request.POST.get('crop_name', 'Unknown Crop')
         
+        # Create in-app notification when planting is updated
+        try:
+            from .dynamodb_helper import save_notification
+            if user_id:
+                notification_id = save_notification(
+                    user_id=user_id,
+                    notification_type='plant_edited',
+                    title=f'Planting Updated: {updated_crop_name}',
+                    message=f'You\'ve successfully updated {updated_crop_name}. Changes have been saved.',
+                    planting_id=str(planting_id),
+                    metadata={'crop_name': updated_crop_name}
+                )
+                if notification_id:
+                    logger.info('✅ Created in-app notification for updated planting: %s', notification_id)
+        except Exception as e:
+            logger.exception('Error creating in-app notification for updated planting: %s', e)
+            # Don't fail the request if notification creation fails
+        
         # Send SNS email notification when planting is updated
         try:
             from .sns_helper import publish_notification, ensure_email_subscribed, get_topic_arn
@@ -1516,6 +1558,7 @@ def delete_planting(request, planting_id):
     try:
         planting_to_delete = user_plantings[planting_id]
         actual_planting_id = planting_to_delete.get('planting_id')
+        crop_name_to_delete = planting_to_delete.get('crop_name', 'Unknown Crop')
         image_url = planting_to_delete.get('image_url', '')
 
         if image_url and delete_image_from_s3:
@@ -1535,6 +1578,24 @@ def delete_planting(request, planting_id):
             except Exception:
                 logger.exception('Failed deleting planting from DynamoDB; proceeding to remove from session')
 
+        # Create in-app notification when planting is deleted
+        try:
+            from .dynamodb_helper import save_notification
+            if user_id:
+                notification_id = save_notification(
+                    user_id=user_id,
+                    notification_type='plant_deleted',
+                    title=f'Planting Deleted: {crop_name_to_delete}',
+                    message=f'You\'ve successfully deleted {crop_name_to_delete}.',
+                    planting_id=str(actual_planting_id) if actual_planting_id else None,
+                    metadata={'crop_name': crop_name_to_delete}
+                )
+                if notification_id:
+                    logger.info('✅ Created in-app notification for deleted planting: %s', notification_id)
+        except Exception as e:
+            logger.exception('Error creating in-app notification for deleted planting: %s', e)
+            # Don't fail the request if notification creation fails
+        
         # Remove from session list
         user_plantings.pop(planting_id)
         request.session['user_plantings'] = user_plantings
@@ -2156,8 +2217,10 @@ def toggle_notifications(request):
 
 def get_notification_summaries(request):
     """
-    API endpoint to get notification summaries (upcoming harvest tasks) for the logged-in user.
-    Returns JSON with upcoming tasks from user's plantings in the next 7 days.
+    API endpoint to get in-app notifications and upcoming harvest tasks for the logged-in user.
+    Returns JSON with:
+    - In-app notifications from DynamoDB (plant_added, plant_edited, plant_deleted, harvest_reminder, step_reminder)
+    - Upcoming tasks from user's plantings in the next 7 days
     """
     from datetime import date, timedelta
     
@@ -2217,16 +2280,26 @@ def get_notification_summaries(request):
     if not user_id:
         return JsonResponse({'error': 'User not authenticated'}, status=401)
     
-    # Load user's plantings
+    # Load in-app notifications from DynamoDB
+    in_app_notifications = []
+    try:
+        from .dynamodb_helper import load_user_notifications
+        in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False)
+        logger.info('Loaded %d in-app notifications for user %s', len(in_app_notifications), user_id)
+    except Exception as e:
+        logger.exception('Error loading in-app notifications: %s', e)
+        # Continue even if notifications can't be loaded
+    
+    # Load user's plantings for upcoming tasks
     try:
         from .dynamodb_helper import load_user_plantings
         plantings = load_user_plantings(user_id or username)
     except Exception as e:
         logger.exception('Error loading plantings for notification summaries: %s', e)
-        return JsonResponse({'error': 'Failed to load plantings'}, status=500)
+        plantings = []
     
-    # Build notification summaries (upcoming tasks in next 7 days)
-    summaries = []
+    # Build upcoming task summaries (upcoming tasks in next 7 days)
+    upcoming_task_summaries = []
     today = date.today()
     days_ahead = 7
     
@@ -2234,6 +2307,7 @@ def get_notification_summaries(request):
         crop_name = planting.get('crop_name', 'Unknown Crop')
         planting_date_str = planting.get('planting_date', '')
         plan = planting.get('plan', [])
+        planting_id = planting.get('planting_id')
         
         if not plan:
             continue
@@ -2245,7 +2319,9 @@ def get_notification_summaries(request):
                 continue
             
             try:
-                task_due_date = date.fromisoformat(task_due_date_str)
+                task_due_date = date.fromisoformat(task_due_date_str) if isinstance(task_due_date_str, str) else task_due_date_str
+                if isinstance(task_due_date, str):
+                    task_due_date = date.fromisoformat(task_due_date_str)
                 days_until = (task_due_date - today).days
                 
                 # Include tasks due in next 7 days (including today)
@@ -2254,25 +2330,154 @@ def get_notification_summaries(request):
                     summary = {
                         'crop_name': crop_name,
                         'task': task_name,
-                        'due_date': task_due_date_str,
+                        'due_date': task_due_date_str if isinstance(task_due_date_str, str) else task_due_date.isoformat(),
                         'days_until': days_until,
                         'planting_date': planting_date_str,
                         'batch_id': planting.get('batch_id', ''),
+                        'notification_type': 'step_reminder',
+                        'planting_id': str(planting_id) if planting_id else None,
                     }
-                    summaries.append(summary)
-            except (ValueError, TypeError):
+                    upcoming_task_summaries.append(summary)
+                    
+                    # Create in-app notification for upcoming step if not already created today
+                    try:
+                        from .dynamodb_helper import save_notification
+                        # Check if notification already exists for this task (avoid duplicates)
+                        existing = [n for n in in_app_notifications 
+                                   if n.get('notification_type') == 'step_reminder' 
+                                   and n.get('crop_name') == crop_name 
+                                   and n.get('due_date') == (task_due_date_str if isinstance(task_due_date_str, str) else task_due_date.isoformat())
+                                   and n.get('task') == task_name]
+                        if not existing:
+                            notification_id = save_notification(
+                                user_id=user_id,
+                                notification_type='step_reminder',
+                                title=f'{task_name} - {crop_name}',
+                                message=f'{task_name} for {crop_name} is due {days_until} day(s) from now ({task_due_date.isoformat()}).',
+                                planting_id=str(planting_id) if planting_id else None,
+                                metadata={
+                                    'crop_name': crop_name,
+                                    'task': task_name,
+                                    'due_date': task_due_date.isoformat(),
+                                    'days_until': days_until
+                                }
+                            )
+                            if notification_id:
+                                logger.info('✅ Created step reminder notification: %s', notification_id)
+                    except Exception as e:
+                        logger.exception('Error creating step reminder notification: %s', e)
+            except (ValueError, TypeError) as e:
+                logger.debug('Error parsing task due_date: %s', e)
+                continue
+        
+        # Check for upcoming harvest dates (within 7 days)
+        harvest_date = planting.get('harvest_date')
+        if harvest_date:
+            try:
+                if isinstance(harvest_date, str):
+                    harvest_date_obj = date.fromisoformat(harvest_date)
+                else:
+                    harvest_date_obj = harvest_date
+                days_until_harvest = (harvest_date_obj - today).days
+                
+                # Include harvest dates within 7 days
+                if 0 <= days_until_harvest <= days_ahead:
+                    # Check if notification already exists for this harvest (avoid duplicates)
+                    existing = [n for n in in_app_notifications 
+                               if n.get('notification_type') == 'harvest_reminder' 
+                               and n.get('crop_name') == crop_name 
+                               and n.get('harvest_date') == harvest_date_obj.isoformat()]
+                    if not existing:
+                        try:
+                            from .dynamodb_helper import save_notification
+                            notification_id = save_notification(
+                                user_id=user_id,
+                                notification_type='harvest_reminder',
+                                title=f'Harvest Reminder: {crop_name}',
+                                message=f'{crop_name} is ready to harvest in {days_until_harvest} day(s) ({harvest_date_obj.isoformat()}).',
+                                planting_id=str(planting_id) if planting_id else None,
+                                metadata={
+                                    'crop_name': crop_name,
+                                    'harvest_date': harvest_date_obj.isoformat(),
+                                    'days_until': days_until_harvest
+                                }
+                            )
+                            if notification_id:
+                                logger.info('✅ Created harvest reminder notification: %s', notification_id)
+                        except Exception as e:
+                            logger.exception('Error creating harvest reminder notification: %s', e)
+            except (ValueError, TypeError) as e:
+                logger.debug('Error parsing harvest_date: %s', e)
                 continue
     
-    # Sort by due_date (soonest first)
-    summaries.sort(key=lambda x: x.get('due_date', ''))
+    # Sort upcoming tasks by due_date (soonest first)
+    upcoming_task_summaries.sort(key=lambda x: x.get('due_date', ''))
+    
+    # Reload notifications to include newly created ones
+    try:
+        from .dynamodb_helper import load_user_notifications
+        in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False)
+    except Exception:
+        pass
+    
+    # Combine in-app notifications with upcoming task summaries
+    # Convert in-app notifications to summary format for consistent display
+    all_notifications = []
+    
+    # Add in-app notifications first (newest first)
+    for notif in in_app_notifications:
+        notif_type = notif.get('notification_type', '')
+        created_at = notif.get('created_at', 0)
+        if isinstance(created_at, (int, float)):
+            # Convert timestamp to date string for display
+            from datetime import datetime
+            try:
+                dt = datetime.fromtimestamp(created_at)
+                created_at_str = dt.strftime('%Y-%m-%d %H:%M')
+            except:
+                created_at_str = str(created_at)
+        else:
+            created_at_str = str(created_at)
+        
+        all_notifications.append({
+            'notification_id': notif.get('notification_id'),
+            'type': notif_type,
+            'title': notif.get('title', 'Notification'),
+            'message': notif.get('message', ''),
+            'created_at': created_at_str,
+            'read': notif.get('read', False),
+            'crop_name': notif.get('crop_name'),
+            'planting_id': notif.get('planting_id'),
+            'days_until': notif.get('days_until'),
+            'due_date': notif.get('due_date'),
+            'task': notif.get('task'),
+        })
+    
+    # Add upcoming task summaries
+    for summary in upcoming_task_summaries:
+        all_notifications.append({
+            'type': 'step_reminder',
+            'title': f"{summary['task']} - {summary['crop_name']}",
+            'message': f"{summary['task']} for {summary['crop_name']} is due {summary['days_until']} day(s) from now.",
+            'created_at': summary['due_date'],
+            'read': False,
+            'crop_name': summary['crop_name'],
+            'planting_id': summary.get('planting_id'),
+            'days_until': summary['days_until'],
+            'due_date': summary['due_date'],
+            'task': summary['task'],
+        })
+    
+    # Sort all notifications by date (newest/soonest first)
+    all_notifications.sort(key=lambda x: x.get('created_at', ''), reverse=True)
     
     # Build email summary text (this is what would be sent via email)
     email_summary = ""
-    if summaries:
+    if upcoming_task_summaries:
         email_summary = f"Hello {username or user_email or 'User'},\n\n"
         email_summary += "Here are your upcoming harvest reminders:\n\n"
         
-        for summary in summaries:
+        for summary in upcoming_task_summaries:
             days_text = "today" if summary['days_until'] == 0 else f"in {summary['days_until']} day(s)"
             email_summary += f"• {summary['crop_name']}: {summary['task']} due {days_text} ({summary['due_date']})\n"
         
@@ -2281,7 +2486,9 @@ def get_notification_summaries(request):
     return JsonResponse({
         'success': True,
         'email': user_email,
-        'summaries': summaries,
+        'notifications': all_notifications,
+        'summaries': upcoming_task_summaries,  # Keep for backward compatibility
         'email_summary': email_summary,
-        'count': len(summaries)
+        'count': len(all_notifications),
+        'unread_count': len([n for n in all_notifications if not n.get('read', False)])
     })

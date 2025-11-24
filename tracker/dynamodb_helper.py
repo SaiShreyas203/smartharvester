@@ -24,6 +24,7 @@ import json
 import logging
 import base64
 import uuid
+import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 
@@ -43,6 +44,7 @@ logger.addHandler(logging.NullHandler())
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 DYNAMO_USERS_TABLE = os.getenv("DYNAMO_USERS_TABLE", "users")
 DYNAMO_PLANTINGS_TABLE = os.getenv("DYNAMO_PLANTINGS_TABLE", "plantings")
+DYNAMO_NOTIFICATIONS_TABLE = os.getenv("DYNAMO_NOTIFICATIONS_TABLE", "notifications")
 # Name of the partition key attribute for users table (if unknown, default to 'username' because console item showed username)
 DYNAMO_USERS_PK = os.getenv("DYNAMO_USERS_PK", "username")
 
@@ -472,7 +474,188 @@ def get_user_notification_preference(username_or_userid: str) -> bool:
     except Exception as e:
         logger.exception("Error fetching notification preference for %s: %s", username_or_userid, e)
         return True
+
+
+# ----- In-App Notifications helpers -----
+def save_notification(user_id: str, notification_type: str, title: str, message: str, 
+                     planting_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """
+    Save an in-app notification to the notifications table.
     
+    Args:
+        user_id: The user ID (Cognito sub or django_<pk>)
+        notification_type: Type of notification ('plant_added', 'plant_edited', 'plant_deleted', 'harvest_reminder', 'step_reminder')
+        title: Notification title
+        message: Notification message
+        planting_id: Optional planting_id if related to a specific planting
+        metadata: Optional additional data (e.g., crop_name, due_date, etc.)
+    
+    Returns:
+        Notification ID if successful, None otherwise
+    """
+    try:
+        table = _table(DYNAMO_NOTIFICATIONS_TABLE)
+        notification_id = str(uuid.uuid4())
+        import time
+        timestamp = Decimal(str(int(time.time())))
+        
+        item = {
+            'notification_id': notification_id,
+            'user_id': str(user_id),
+            'notification_type': notification_type,
+            'title': title,
+            'message': message,
+            'created_at': timestamp,
+            'read': False,
+        }
+        
+        if planting_id:
+            item['planting_id'] = str(planting_id)
+        
+        if metadata:
+            for k, v in metadata.items():
+                if v is not None:
+                    item[k] = str(v) if isinstance(v, (int, float, bool)) else v
+        
+        item = {k: _to_dynamo_decimal(v) for k, v in item.items() if v is not None}
+        table.put_item(Item=item)
+        logger.info("Saved notification %s for user %s: %s", notification_id, user_id, title)
+        return notification_id
+    except ClientError as e:
+        logger.exception("DynamoDB ClientError saving notification: %s", e)
+        return None
+    except Exception as e:
+        logger.exception("Error saving notification: %s", e)
+        return None
+
+
+def load_user_notifications(user_id: str, limit: int = 50, unread_only: bool = False) -> List[Dict[str, Any]]:
+    """
+    Load notifications for a user from the notifications table.
+    
+    Args:
+        user_id: The user ID
+        limit: Maximum number of notifications to return
+        unread_only: If True, only return unread notifications
+    
+    Returns:
+        List of notification dictionaries, sorted by created_at (newest first)
+    """
+    try:
+        table = _table(DYNAMO_NOTIFICATIONS_TABLE)
+        items = []
+        
+        # Try GSI query first (if user_id-index exists)
+        try:
+            scan_kwargs = {
+                "IndexName": "user_id-index",
+                "KeyConditionExpression": Key("user_id").eq(str(user_id)),
+                "Limit": limit,
+                "ScanIndexForward": False,  # Sort descending (newest first)
+            }
+            if unread_only:
+                scan_kwargs["FilterExpression"] = Attr("read").eq(False)
+            
+            resp = table.query(**scan_kwargs)
+            items = resp.get("Items", []) or []
+            if items:
+                logger.debug("Loaded %d notifications for user %s via GSI", len(items), user_id)
+                return _convert_notifications_to_python(items)
+        except ClientError:
+            logger.debug("GSI query failed, using scan fallback")
+        
+        # Fallback: scan with filter
+        scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
+        if unread_only:
+            scan_kwargs["FilterExpression"] = scan_kwargs["FilterExpression"] & Attr("read").eq(False)
+        
+        start_key = None
+        while len(items) < limit:
+            if start_key:
+                scan_kwargs["ExclusiveStartKey"] = start_key
+            resp = table.scan(**scan_kwargs)
+            batch = resp.get("Items", []) or []
+            items.extend(batch)
+            start_key = resp.get("LastEvaluatedKey")
+            if not start_key:
+                break
+        
+        # Sort by created_at descending and limit
+        items.sort(key=lambda x: float(x.get("created_at", 0)), reverse=True)
+        items = items[:limit]
+        
+        logger.debug("Loaded %d notifications for user %s via scan", len(items), user_id)
+        return _convert_notifications_to_python(items)
+    except ClientError as e:
+        logger.exception("DynamoDB ClientError loading notifications: %s", e)
+        return []
+    except Exception as e:
+        logger.exception("Error loading notifications: %s", e)
+        return []
+
+
+def _convert_notifications_to_python(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert DynamoDB notification items to Python types."""
+    result = []
+    for item in items:
+        notification = {}
+        for k, v in item.items():
+            if isinstance(v, Decimal):
+                notification[k] = float(v) if v % 1 != 0 else int(v)
+            else:
+                notification[k] = v
+        result.append(notification)
+    return result
+
+
+def mark_notification_read(notification_id: str) -> bool:
+    """
+    Mark a notification as read.
+    
+    Args:
+        notification_id: The notification ID
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        table = _table(DYNAMO_NOTIFICATIONS_TABLE)
+        table.update_item(
+            Key={"notification_id": notification_id},
+            UpdateExpression="SET #r = :v",
+            ExpressionAttributeNames={"#r": "read"},
+            ExpressionAttributeValues={":v": True}
+        )
+        logger.debug("Marked notification %s as read", notification_id)
+        return True
+    except Exception as e:
+        logger.exception("Error marking notification as read: %s", e)
+        return False
+
+
+def mark_all_notifications_read(user_id: str) -> bool:
+    """
+    Mark all notifications for a user as read.
+    
+    Args:
+        user_id: The user ID
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        notifications = load_user_notifications(user_id, limit=1000, unread_only=True)
+        success_count = 0
+        for notification in notifications:
+            if mark_notification_read(notification.get('notification_id')):
+                success_count += 1
+        logger.info("Marked %d notifications as read for user %s", success_count, user_id)
+        return success_count > 0
+    except Exception as e:
+        logger.exception("Error marking all notifications as read: %s", e)
+        return False
+
+
 def get_user_plantings(user_id: str) -> List[Dict[str, Any]]:
     """
     Return plantings for a given user_id.
