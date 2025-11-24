@@ -2288,12 +2288,20 @@ def get_notification_summaries(request):
     if not user_id:
         return JsonResponse({'error': 'User not authenticated'}, status=401)
     
+    # Log user_id being used for debugging
+    logger.info('🔍 get_notification_summaries: Using user_id=%s, username=%s, email=%s', user_id, username, user_email)
+    
     # Load in-app notifications from DynamoDB
     in_app_notifications = []
     try:
         from .dynamodb_helper import load_user_notifications
+        logger.info('📥 Attempting to load notifications for user_id=%s', user_id)
         in_app_notifications = load_user_notifications(user_id, limit=50, unread_only=False)
         logger.info('✅ Loaded %d in-app notifications for user %s', len(in_app_notifications), user_id)
+        if in_app_notifications:
+            logger.info('📋 Sample notification: %s', in_app_notifications[0] if in_app_notifications else 'none')
+        else:
+            logger.warning('⚠️ No notifications found for user_id=%s. Checking if any notifications exist in table...', user_id)
     except Exception as e:
         logger.exception('❌ Error loading in-app notifications: %s', e)
         logger.error('This might be because the notifications table does not exist in DynamoDB.')

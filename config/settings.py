@@ -82,6 +82,12 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+# Security headers - Content Security Policy is handled via meta tag in templates
+# Note: If you want to use CSP middleware instead, install django-csp and configure it here
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
+
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
