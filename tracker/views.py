@@ -284,6 +284,8 @@ def index(request):
 
     # Process plantings - robust parsing for dates and image_url
     # Ensure all fields from DynamoDB are properly extracted, especially image_url
+    plans_regenerated = 0
+    plans_with_steps = 0
     for i, planting_data in enumerate(user_plantings):
         try:
             planting = dict(planting_data)  # copy
@@ -314,13 +316,17 @@ def index(request):
                 logger.warning('Planting at index %d missing planting_date, skipping', i)
                 continue
 
-            # ALWAYS regenerate plan using library to ensure it's up-to-date
-            # This ensures all plants show steps like the user requested
+            # CRITICAL: ALWAYS regenerate plan using library to ensure it's up-to-date
+            # This ensures all plants show steps from care_schedule in data.json
             crop_name_raw = planting.get('crop_name', '').strip()
             planting_date_obj = planting.get('planting_date')
-            plan = planting.get('plan', [])  # Keep old plan as fallback
+            old_plan = planting.get('plan', [])  # Keep old plan as fallback only
             
-            # Regenerate plan for ALL plantings - don't skip if plan exists
+            # FORCE regenerate plan for EVERY planting - this is MANDATORY
+            # The plan MUST be generated from care_schedule in data.json
+            calculated_plan = []
+            plan_generation_success = False
+            
             if crop_name_raw and planting_date_obj:
                 try:
                     # Ensure planting_date is a date object
@@ -339,7 +345,7 @@ def index(request):
                         logger.info('📝 Normalized crop_name: "%s" -> "%s"', crop_name_raw, crop_name)
                     
                     # Log what we're about to calculate
-                    logger.info('🔄 Regenerating plan for crop: "%s" (original: "%s"), planting_date: %s', 
+                    logger.info('🔄 FORCING plan regeneration for crop: "%s" (original: "%s"), planting_date: %s', 
                               crop_name, crop_name_raw, planting_date_obj.isoformat())
                     
                     # Verify plant exists in data.json before calculating
@@ -350,21 +356,25 @@ def index(request):
                     else:
                         logger.error('❌ Crop "%s" NOT found in data.json. Available plants: %s', 
                                    crop_name, list(plant_data.keys())[:12] if isinstance(plant_data, dict) else 'N/A')
-                        # Try to continue anyway - normalization might still work
+                        # Don't continue if crop not found - this is a real error
+                        planting['plan'] = []
+                        continue
                     
                     calculate = _get_calculate_plan()
                     calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
                     
                     # Log plan generation result
-                    if calculated_plan:
+                    if calculated_plan and len(calculated_plan) > 0:
                         logger.info('✅ Plan calculator returned %d tasks for "%s"', len(calculated_plan), crop_name)
                         for idx, task in enumerate(calculated_plan):
                             logger.debug('  Task %d: %s (due: %s)', idx+1, task.get('task'), task.get('due_date'))
                     else:
-                        logger.warning('⚠️ Plan calculator returned empty list for "%s"', crop_name)
+                        logger.error('❌ Plan calculator returned empty list for "%s". This should not happen!', crop_name)
                     
                     if calculated_plan and len(calculated_plan) > 0:
-                        logger.info('✅ Generated %d tasks for "%s"', len(calculated_plan), crop_name)
+                        plan_generation_success = True
+                        logger.info('✅ Generated %d tasks for "%s" from care_schedule', len(calculated_plan), crop_name)
+                        
                         # Keep dates as date objects for template rendering (don't convert to ISO strings here)
                         # The template needs date objects for the date filter to work
                         # Ensure all dates are date objects (not strings) for template rendering
@@ -375,11 +385,20 @@ def index(request):
                                 except (ValueError, TypeError):
                                     logger.warning('Could not parse due_date string: %s', task.get('due_date'))
                                     task['due_date'] = None
+                        
+                        # CRITICAL: Always set the plan on the planting dict
                         planting['plan'] = calculated_plan
+                        plans_regenerated += 1
+                        plans_with_steps += 1
+                        
                         logger.debug('✅ Set plan with %d tasks for planting %d (crop: %s)', len(calculated_plan), i, crop_name)
-                        was_empty = not plan or len(plan) == 0
-                        logger.info('✅ Regenerated plan for planting %d (crop: %s, planted: %s) - %d tasks (was empty: %s)', 
+                        was_empty = not old_plan or len(old_plan) == 0
+                        logger.info('✅ Regenerated plan for planting %d (crop: %s, planted: %s) - %d tasks from care_schedule (was empty: %s)', 
                                   i, crop_name, planting_date_obj.isoformat(), len(calculated_plan), was_empty)
+                        
+                        # Log each task for debugging
+                        for idx, task in enumerate(calculated_plan):
+                            logger.debug('  Task %d: "%s" due on %s', idx+1, task.get('task'), task.get('due_date'))
                         
                         # Auto-save updated plan back to DynamoDB with all required fields
                         try:
@@ -413,26 +432,36 @@ def index(request):
                         except Exception as save_error:
                             logger.warning('⚠️ Could not auto-save regenerated plan to DynamoDB: %s', save_error)
                     else:
-                        logger.error('❌ Plan calculator returned empty plan for "%s" (normalized from "%s"). Available plants: %s', 
+                        # Plan calculator returned empty - this should NOT happen if crop is in data.json
+                        logger.error('❌ CRITICAL: Plan calculator returned empty plan for "%s" (normalized from "%s"). Available plants: %s', 
                                     crop_name, crop_name_raw, 
-                                    list(plant_data.keys())[:10] if isinstance(plant_data, dict) else 'N/A')
-                        # Even if empty, update the plan to empty list (this will show "No steps available")
+                                    list(plant_data.keys())[:12] if isinstance(plant_data, dict) else 'N/A')
+                        # Set empty plan - this will show "No steps available"
                         planting['plan'] = []
-                        # Also update crop_name to normalized version
                         planting['crop_name'] = crop_name
+                        plan_generation_success = False
                 except Exception as e:
                     logger.exception('❌ Error regenerating plan for planting %d (crop: "%s"): %s', i, crop_name_raw, e)
-                    planting['plan'] = plan if plan else []
+                    # On error, try to use old plan, but log the error
+                    planting['plan'] = old_plan if old_plan else []
+                    logger.warning('⚠️ Using old plan as fallback for planting %d (crop: "%s")', i, crop_name_raw)
+                    plan_generation_success = False
             else:
-                logger.warning('⚠️ Skipping plan regeneration: missing crop_name or planting_date (crop_name=%s, planting_date=%s)', 
+                logger.warning('⚠️ CRITICAL: Skipping plan regeneration - missing crop_name or planting_date (crop_name=%s, planting_date=%s)', 
                              crop_name_raw, planting_date_obj)
-                planting['plan'] = plan if plan else []
+                # If missing required fields, use old plan or empty
+                planting['plan'] = old_plan if old_plan else []
+                
+            # FINAL CHECK: Ensure planting always has a 'plan' key
+            if 'plan' not in planting:
+                planting['plan'] = []
+                logger.error('❌ CRITICAL: Planting %d missing plan key - added empty plan', i)
             
-            # Normalize plan due_date fields to date objects where possible for display
+            # Final step: Ensure all plan dates are date objects for template rendering
             # This ensures the template can use Django's date filter
             plan_list = planting.get('plan', [])
-            if plan_list:
-                logger.debug('Normalizing %d plan tasks for planting %d (crop: %s)', len(plan_list), i, planting.get('crop_name'))
+            if plan_list and len(plan_list) > 0:
+                logger.debug('Final normalization: %d plan tasks for planting %d (crop: %s)', len(plan_list), i, planting.get('crop_name'))
                 for task_idx, task in enumerate(plan_list):
                     if 'due_date' in task and task['due_date']:
                         try:
@@ -440,15 +469,19 @@ def index(request):
                                 task['due_date'] = date.fromisoformat(task['due_date'])
                                 logger.debug('  Task %d: Converted ISO string to date: %s', task_idx, task['due_date'])
                             elif isinstance(task['due_date'], date):
-                                logger.debug('  Task %d: Already a date object: %s', task_idx, task['due_date'])
+                                # Already a date object - perfect!
+                                pass
                             else:
-                                logger.warning('  Task %d: Unexpected due_date type: %s', task_idx, type(task['due_date']))
+                                logger.warning('  Task %d: Unexpected due_date type: %s for crop %s', task_idx, type(task['due_date']), planting.get('crop_name'))
+                                task['due_date'] = None
                         except (ValueError, TypeError) as e:
                             logger.warning('Error parsing due_date in planting %d, task %d: %s - due_date value: %s', i, task_idx, e, task.get('due_date'))
                             task['due_date'] = None
                 planting['plan'] = plan_list
+                logger.info('✅ Final plan for planting %d (crop: %s): %d tasks with dates', i, planting.get('crop_name'), len(plan_list))
             else:
-                logger.warning('⚠️ Planting %d (crop: %s) has no plan or empty plan', i, planting.get('crop_name'))
+                logger.warning('⚠️ Planting %d (crop: %s) has no plan or empty plan after regeneration', i, planting.get('crop_name'))
+                planting['plan'] = []
 
             # Determine harvest_date from last task that has due_date
             plan_list = planting.get('plan', [])
@@ -597,7 +630,10 @@ def index(request):
     # Log summary of plans generated
     total_plantings = len(ongoing) + len(upcoming) + len(past)
     plantings_with_plans = sum(1 for p in ongoing + upcoming + past if p.get('plan') and len(p.get('plan', [])) > 0)
-    logger.info('📊 Index view summary: %d total plantings, %d with plans generated', total_plantings, plantings_with_plans)
+    # Count plantings with plans
+    plantings_with_plans = sum(1 for p in ongoing + upcoming + past if p.get('plan') and len(p.get('plan', [])) > 0)
+    logger.info('📊 Index view summary: %d total plantings, %d with plans (regenerated: %d, with steps: %d)', 
+                total_plantings, plantings_with_plans, plans_regenerated, plans_with_steps)
     
     context = {
         'ongoing': ongoing,
