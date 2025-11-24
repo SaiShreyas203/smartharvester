@@ -355,6 +355,10 @@ def add_planting_view(request):
         logger.debug('add_planting_view: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
         if hasattr(request, 'cognito_user_id'):
             logger.debug('add_planting_view: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
+        # Save the current URL so we can redirect back after login
+        request.session['next_url'] = request.path
+        request.session.modified = True
+        logger.info('add_planting_view: Saved next_url=%s for redirect after login', request.path)
         # Redirect to Cognito login instead of Django login
         return redirect('cognito_login')
     
@@ -968,11 +972,23 @@ def cognito_callback(request):
         logger.exception('Error saving session: %s', e)
         return HttpResponse(f"Error saving session: {str(e)}", status=500)
 
-    # Redirect to home page - use absolute HTTPS URL to avoid protocol/port issues
-    # Construct from COGNITO_REDIRECT_URI to ensure we use the correct base URL
-    redirect_base = settings.COGNITO_REDIRECT_URI.rsplit('/auth/callback/', 1)[0]
-    redirect_url = redirect_base + '/'
-    logger.info('Cognito callback: Redirecting to %s', redirect_url)
+    # Redirect to the page the user was trying to access, or home page if none
+    # Check if there's a 'next_url' saved in session (e.g., from add_planting_view)
+    next_url = request.session.pop('next_url', None)
+    if next_url:
+        # Use absolute URL to avoid protocol/port issues
+        redirect_base = settings.COGNITO_REDIRECT_URI.rsplit('/auth/callback/', 1)[0]
+        # Ensure next_url starts with / (it should already)
+        if not next_url.startswith('/'):
+            next_url = '/' + next_url
+        redirect_url = redirect_base + next_url
+        logger.info('Cognito callback: Redirecting to saved next_url: %s', redirect_url)
+    else:
+        # Default to home page - use absolute HTTPS URL to avoid protocol/port issues
+        # Construct from COGNITO_REDIRECT_URI to ensure we use the correct base URL
+        redirect_base = settings.COGNITO_REDIRECT_URI.rsplit('/auth/callback/', 1)[0]
+        redirect_url = redirect_base + '/'
+        logger.info('Cognito callback: Redirecting to home page: %s', redirect_url)
     return redirect(redirect_url)
 
 def persist_cognito_user(request, id_token: str | None = None, claims: dict | None = None) -> tuple[bool, str | None]:
