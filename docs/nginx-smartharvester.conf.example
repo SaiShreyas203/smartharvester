@@ -1,0 +1,115 @@
+# Example Nginx configuration for SmartHarvester
+# Place this at: /etc/nginx/sites-available/smartharvester
+# Then create symlink: sudo ln -s /etc/nginx/sites-available/smartharvester /etc/nginx/sites-enabled/
+# Or replace /etc/nginx/sites-enabled/default
+
+# HTTP to HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name 3.235.196.246.nip.io;
+
+    # Redirect all HTTP to HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name 3.235.196.246.nip.io;
+
+    # SSL Configuration
+    # For development/testing without certificates, you can comment out SSL and use port 80
+    # For production, uncomment and configure:
+    # ssl_certificate /etc/ssl/certs/your-cert.pem;
+    # ssl_certificate_key /etc/ssl/private/your-key.pem;
+    # ssl_protocols TLSv1.2 TLSv1.3;
+    # ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # Logging
+    access_log /var/log/nginx/smartharvester_access.log;
+    error_log /var/log/nginx/smartharvester_error.log;
+
+    # Maximum upload size
+    client_max_body_size 10M;
+
+    # Timeouts
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+
+    # Proxy all requests to Gunicorn
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_redirect off;
+        
+        # WebSocket support (if needed in future)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Static files - serve directly from nginx (faster)
+    location /static/ {
+        alias /home/ubuntu/myproject/smartharvester/staticfiles/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Media files - serve directly from nginx
+    location /media/ {
+        alias /home/ubuntu/myproject/smartharvester/media/;
+        expires 30d;
+        add_header Cache-Control "public";
+        access_log off;
+    }
+
+    # Health check endpoint (if you have one)
+    location /health/ {
+        proxy_pass http://127.0.0.1:8000;
+        access_log off;
+    }
+}
+
+# Alternative: HTTP-only configuration (for development)
+# Uncomment this and comment out the HTTPS server above if not using SSL
+#
+# server {
+#     listen 80;
+#     listen [::]:80;
+#     server_name 3.235.196.246.nip.io;
+#
+#     access_log /var/log/nginx/smartharvester_access.log;
+#     error_log /var/log/nginx/smartharvester_error.log;
+#
+#     client_max_body_size 10M;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:8000;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_redirect off;
+#     }
+#
+#     location /static/ {
+#         alias /home/ubuntu/myproject/smartharvester/staticfiles/;
+#         expires 30d;
+#         add_header Cache-Control "public, immutable";
+#     }
+#
+#     location /media/ {
+#         alias /home/ubuntu/myproject/smartharvester/media/;
+#         expires 30d;
+#     }
+# }
+
