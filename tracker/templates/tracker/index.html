@@ -753,6 +753,12 @@
                             btnBadge.style.display = 'flex';
                             btnBadge.style.background = unreadCount > 0 ? '#ff6b6b' : 'var(--primary-color)';
                             console.log(`🔔 Badge updated: ${displayCount} notification(s), ${unreadCount} unread`);
+                            
+                            // Play sound if there are unread notifications (only on page load, not on every check)
+                            if (unreadCount > 0 && typeof window.justLoaded !== 'undefined' && window.justLoaded) {
+                                playNotificationSound();
+                                window.justLoaded = false; // Only play once per page load
+                            }
                         } else {
                             btnBadge.style.display = 'none';
                         }
@@ -763,6 +769,9 @@
             console.error('Error updating notification badge:', error);
         }
     }
+    
+    // Mark that page just loaded (for sound notification)
+    window.justLoaded = true;
 
     function closeDashboard() {
         const dm = document.getElementById('dashboard-modal');
@@ -773,6 +782,56 @@
         if (nm) {
             nm.style.display = 'none';
             nm.setAttribute('aria-hidden', 'true');
+        }
+    }
+    
+    // Play notification sound when new notifications arrive
+    function playNotificationSound() {
+        try {
+            // Create audio context for notification sound
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Create a pleasant notification sound (two-tone chime)
+            const oscillator1 = audioContext.createOscillator();
+            const oscillator2 = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator1.connect(gainNode);
+            oscillator2.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // First tone (higher pitch)
+            oscillator1.frequency.value = 800;
+            oscillator1.type = 'sine';
+            
+            // Second tone (lower pitch)
+            oscillator2.frequency.value = 600;
+            oscillator2.type = 'sine';
+            
+            // Volume envelope
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            // Play first tone
+            oscillator1.start(audioContext.currentTime);
+            oscillator1.stop(audioContext.currentTime + 0.2);
+            
+            // Play second tone slightly after
+            oscillator2.start(audioContext.currentTime + 0.1);
+            oscillator2.stop(audioContext.currentTime + 0.3);
+            
+            console.log('🔔 Notification sound played');
+        } catch (error) {
+            console.warn('Could not play notification sound:', error);
+            // Fallback: try simple beep
+            try {
+                const beep = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OSfTQ8OUKbl8LZjHAY4kdfyzHksBSR3x/DdkEAKFF606euoVRQKRp/g8r5sIQUrgc7y2Yk2CBtpvfDkn00PDlCm5fC2YxwGOJHX8sx5LAUkd8fw3ZBAC');
+                beep.volume = 0.3;
+                beep.play().catch(e => console.warn('Beep fallback failed:', e));
+            } catch (e) {
+                console.warn('All sound methods failed:', e);
+            }
         }
     }
 
@@ -817,6 +876,11 @@
                 const unreadCount = data.unread_count || 0;
                 
                 console.log(`📊 Total notifications: ${notifications.length}, Unread: ${unreadCount}`);
+                
+                // Play sound notification if there are new unread notifications
+                if (unreadCount > 0) {
+                    playNotificationSound();
+                }
                 
                 // Always update badge (even if modal is not open)
                 
@@ -978,7 +1042,65 @@
             closeNotification();
         }
     });
+    
+    // Play notification sound when new notifications arrive
+    function playNotificationSound() {
+        try {
+            // Create audio context for notification sound
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Create a pleasant notification sound (two-tone chime)
+            const oscillator1 = audioContext.createOscillator();
+            const oscillator2 = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator1.connect(gainNode);
+            oscillator2.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // First tone (higher pitch)
+            oscillator1.frequency.value = 800;
+            oscillator1.type = 'sine';
+            
+            // Second tone (lower pitch)
+            oscillator2.frequency.value = 600;
+            oscillator2.type = 'sine';
+            
+            // Volume envelope
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            // Play first tone
+            oscillator1.start(audioContext.currentTime);
+            oscillator1.stop(audioContext.currentTime + 0.2);
+            
+            // Play second tone slightly after
+            oscillator2.start(audioContext.currentTime + 0.1);
+            oscillator2.stop(audioContext.currentTime + 0.3);
+            
+            console.log('🔔 Notification sound played');
+        } catch (error) {
+            console.warn('Could not play notification sound:', error);
+            // Fallback: try simple beep
+            try {
+                const beep = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OSfTQ8OUKbl8LZjHAY4kdfyzHksBSR3x/DdkEAKFF606euoVRQKRp/g8r5sIQUrgc7y2Yk2CBtpvfDkn00PDlCm5fC2YxwGOJHX8sx5LAUkd8fw3ZBAC');
+                beep.volume = 0.3;
+                beep.play().catch(e => console.warn('Beep fallback failed:', e));
+            } catch (e) {
+                console.warn('All sound methods failed:', e);
+            }
+        }
+    }
+    
+    // Check for new notifications after form submissions (add/edit/delete)
+    // This will refresh notifications when user returns to index page
+    if (window.location.pathname === '/' || window.location.pathname === '/index/') {
+        // Check for notifications after a short delay (allows server to process)
+        setTimeout(function() {
+            updateNotificationBadgeSilently();
+        }, 2000);
+    }
 </script>
 </body>
-</html>
 </html>

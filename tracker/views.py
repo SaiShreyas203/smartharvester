@@ -1351,12 +1351,14 @@ def update_planting(request, planting_id):
             ExpressionAttributeNames=expr_attr_names,
             ExpressionAttributeValues=expr_attr_values,
         )
-        logger.info("Updated planting %s: %s", planting_id, update_parts)
+        logger.info("✅ Updated planting %s: %s", planting_id, update_parts)
+        logger.info("🔔 update_planting: user_id=%s, username=%s", user_id, username)
         
         # Get updated crop name for notification
         updated_crop_name = request.POST.get('crop_name', 'Unknown Crop')
         
         # Create in-app notification when planting is updated
+        logger.info('🔔 Attempting to create in-app notification for updated planting: user_id=%s, crop_name=%s', user_id, updated_crop_name)
         try:
             from .dynamodb_helper import save_notification
             if user_id:
@@ -1370,9 +1372,13 @@ def update_planting(request, planting_id):
                     request=request  # Pass request for session fallback
                 )
                 if notification_id:
-                    logger.info('✅ Created in-app notification for updated planting: %s', notification_id)
+                    logger.info('✅ Created in-app notification for updated planting: notification_id=%s, user_id=%s', notification_id, user_id)
+                else:
+                    logger.warning('⚠️ save_notification returned None for updated planting - notification not created')
+            else:
+                logger.warning('⚠️ No user_id available for updated planting - skipping in-app notification creation')
         except Exception as e:
-            logger.exception('Error creating in-app notification for updated planting: %s', e)
+            logger.exception('❌ Error creating in-app notification for updated planting: %s', e)
             # Don't fail the request if notification creation fails
         
         # Send SNS email notification when planting is updated

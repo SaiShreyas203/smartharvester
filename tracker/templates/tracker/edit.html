@@ -97,9 +97,23 @@
                 <img src="{{ planting.image_url }}" alt="Current Image" style="max-width:140px;max-height:140px;border-radius:10px;">
             {% endif %}
 
-            <button type="submit">{% if is_editing %}Update Planting{% else %}Save Planting{% endif %}</button>
+            <button type="submit" onclick="this.form.submit(); setTimeout(function(){ window.location.href='{% url 'index' %}'; }, 500);">{% if is_editing %}Update Planting{% else %}Save Planting{% endif %}</button>
             <a href="{% url 'index' %}" class="back-link">&larr; Back to Dashboard</a>
         </form>
+        <script>
+            // Refresh notifications after form submission
+            document.querySelector('form').addEventListener('submit', function() {
+                // After redirect to index, notifications will be refreshed
+                setTimeout(function() {
+                    if (window.location.pathname === '/' || window.location.pathname === '/index/') {
+                        // Trigger notification refresh on index page
+                        if (typeof updateNotificationBadgeSilently === 'function') {
+                            updateNotificationBadgeSilently();
+                        }
+                    }
+                }, 2000);
+            });
+        </script>
         <div class="quote-panel" id="quote-right"></div>
     </main>
 
