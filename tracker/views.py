@@ -253,7 +253,40 @@ def index(request):
                 logger.warning('Planting at index %d missing planting_date, skipping', i)
                 continue
 
-            # Normalize plan due_date fields to date objects where possible
+            # Ensure plan exists - regenerate if missing or empty
+            plan = planting.get('plan', [])
+            if not plan or len(plan) == 0:
+                # Plan is missing or empty - regenerate it
+                crop_name = planting.get('crop_name', '')
+                planting_date_obj = planting.get('planting_date')
+                
+                if crop_name and planting_date_obj:
+                    try:
+                        # Ensure planting_date is a date object
+                        if isinstance(planting_date_obj, str):
+                            planting_date_obj = date.fromisoformat(planting_date_obj)
+                        
+                        # Regenerate plan using built-in calculator
+                        plant_data = load_plant_data()
+                        calculate = _get_calculate_plan()
+                        calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
+                        
+                        if calculated_plan:
+                            # Convert dates to ISO strings for storage consistency
+                            for task in calculated_plan:
+                                if 'due_date' in task and isinstance(task['due_date'], date):
+                                    task['due_date'] = task['due_date'].isoformat()
+                            
+                            planting['plan'] = calculated_plan
+                            logger.info('Regenerated plan for planting %d (crop: %s) - %d tasks', i, crop_name, len(calculated_plan))
+                            
+                            # Optionally save updated plan back to DynamoDB (async/background task)
+                            # For now, it will be saved when user updates the planting
+                    except Exception as e:
+                        logger.exception('Error regenerating plan for planting %d: %s', i, e)
+                        planting['plan'] = []
+            
+            # Normalize plan due_date fields to date objects where possible for display
             for task in planting.get('plan', []):
                 if 'due_date' in task and task['due_date']:
                     try:

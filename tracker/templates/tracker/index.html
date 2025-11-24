@@ -189,14 +189,18 @@
                     </div>
                     {% endif %}
                     <div class="card-steps" style="display:none;">
-                        {% for task_item in planting.plan %}
-                        <li>
-                            {{ task_item.task }}
-                            {% if task_item.due_date %}
-                                ({{ task_item.due_date|date:"M d" }})
-                            {% endif %}
-                        </li>
-                        {% endfor %}
+                        {% if planting.plan %}
+                            {% for task_item in planting.plan %}
+                            <li>
+                                {{ task_item.task }}
+                                {% if task_item.due_date %}
+                                    ({{ task_item.due_date|date:"M d" }})
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        {% else %}
+                            <li>No steps available.</li>
+                        {% endif %}
                     </div>
                 </div>
                 {% empty %}
