@@ -12,4 +12,5 @@ urlpatterns = [
     path('edit/<int:planting_id>/', views.edit_planting_view, name='edit_planting'),
     path('update/<int:planting_id>/', views.update_planting, name='update_planting'),
     path('api/toggle-notifications/', views.toggle_notifications, name='toggle_notifications'),
+    path('api/notification-summaries/', views.get_notification_summaries, name='get_notification_summaries'),
 ]

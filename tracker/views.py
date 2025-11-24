@@ -550,12 +550,24 @@ def save_planting(request):
                         decoded.get('username') or
                         decoded.get('email')
                     )
-                logger.info('save_planting: Extracted user_id from session token: %s', user_id)
-            except Exception:
-                logger.warning('save_planting: No authenticated user found and cannot extract from token, redirecting to login')
+                logger.info('save_planting: Extracted user_id from session token: %s, username: %s', user_id, username)
+            except Exception as e:
+                logger.warning('save_planting: Cannot extract user_id from token: %s', e)
+                logger.warning('save_planting: Session has token but extraction failed - redirecting to login')
+                logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
+                # Save next_url so user returns here after login
+                request.session['next_url'] = '/add/'
+                request.session.modified = True
                 return redirect('cognito_login')
         else:
-            logger.warning('save_planting: No authenticated user found, redirecting to login')
+            logger.warning('save_planting: No authenticated user found - no token in session')
+            logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
+            logger.debug('save_planting: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
+            if hasattr(request, 'cognito_user_id'):
+                logger.debug('save_planting: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
+            # Save next_url so user returns here after login
+            request.session['next_url'] = '/add/'
+            request.session.modified = True
             return redirect('cognito_login')
 
     crop_name = request.POST.get('crop_name')
@@ -1350,17 +1362,62 @@ def profile(request):
         return redirect('login')
     
     if request.method == 'POST':
-        # For Cognito users, we can't update username/password in Django
-        # We could update DynamoDB user record if needed
-        if hasattr(request, 'cognito_payload'):
-            logger.info('Profile: Cognito user profile update requested (not implemented yet)')
-            # TODO: Update user in DynamoDB if needed
+        # Get email from form
+        email = request.POST.get('email', '').strip()
+        
+        # For Cognito users, update DynamoDB user record and subscribe to SNS
+        if hasattr(request, 'cognito_payload') or user_id:
+            logger.info('Profile: Cognito user profile update requested')
+            
+            # Get username and user_id
+            username_to_use = user_data.get('username') or user_id
+            user_id_to_use = user_id or user_data.get('user_id')
+            
+            # Update user in DynamoDB if email changed
+            if email and email != user_data.get('email'):
+                from .dynamodb_helper import save_user_to_dynamodb
+                update_data = {
+                    'email': email,
+                    'username': username_to_use,
+                    'user_id': user_id_to_use,
+                }
+                # Preserve existing name if available
+                if user_data.get('name'):
+                    update_data['name'] = user_data.get('name')
+                
+                saved = save_user_to_dynamodb(user_id_to_use or username_to_use, update_data)
+                if saved:
+                    logger.info('Profile: Updated user email in DynamoDB: %s', email)
+                
+                # Subscribe email to SNS topic for notifications
+                if email:
+                    try:
+                        from .sns_helper import subscribe_email_to_topic
+                        subscribe_email_to_topic(email)
+                        logger.info('Profile: Subscribed email %s to SNS topic', email)
+                        
+                        # Enable notifications preference
+                        from .dynamodb_helper import update_user_notification_preference
+                        update_user_notification_preference(username_to_use, True)
+                        logger.info('Profile: Enabled notifications for user: %s', username_to_use)
+                    except Exception as e:
+                        logger.exception('Profile: Failed to subscribe email to SNS: %s', e)
+            else:
+                # Email not changed, but ensure user is subscribed if they have email
+                email_to_check = email or user_data.get('email')
+                if email_to_check:
+                    try:
+                        from .sns_helper import subscribe_email_to_topic
+                        subscribe_email_to_topic(email_to_check)
+                        logger.info('Profile: Ensured email %s is subscribed to SNS', email_to_check)
+                    except Exception as e:
+                        logger.debug('Profile: SNS subscription check failed: %s', e)
+            
             return redirect('/')
         else:
             # Django auth user - update as before
             user = request.user
             username = request.POST.get('username')
-            email = request.POST.get('email')
             password = request.POST.get('password')
 
             if username and username != user.username:
@@ -1372,6 +1429,19 @@ def profile(request):
                 user.email = email
                 user.save()
                 logger.info('Profile updated: email changed to %s', email)
+                
+                # Subscribe email to SNS topic for notifications
+                try:
+                    from .sns_helper import subscribe_email_to_topic
+                    subscribe_email_to_topic(email)
+                    logger.info('Profile: Subscribed email %s to SNS topic', email)
+                    
+                    # Enable notifications preference
+                    from .dynamodb_helper import update_user_notification_preference
+                    update_user_notification_preference(username, True)
+                    logger.info('Profile: Enabled notifications for Django user: %s', username)
+                except Exception as e:
+                    logger.exception('Profile: Failed to subscribe email to SNS: %s', e)
 
             if password:
                 user.set_password(password)
@@ -1533,3 +1603,136 @@ def toggle_notifications(request):
     except Exception as e:
         logger.exception('Error toggling notifications: %s', e)
         return JsonResponse({'error': str(e)}, status=500)
+
+
+def get_notification_summaries(request):
+    """
+    API endpoint to get notification summaries (upcoming harvest tasks) for the logged-in user.
+    Returns JSON with upcoming tasks from user's plantings in the next 7 days.
+    """
+    from datetime import date, timedelta
+    
+    # Get user identity (same logic as other views)
+    user_id = None
+    username = None
+    user_email = None
+    
+    # Check for Cognito user first (from middleware)
+    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+        user_id = request.cognito_user_id
+        if hasattr(request, 'cognito_payload') and request.cognito_payload:
+            payload = request.cognito_payload
+            username = (
+                payload.get('cognito:username') or
+                payload.get('preferred_username') or
+                payload.get('username') or
+                payload.get('email')
+            )
+            user_email = payload.get('email')
+    else:
+        # Try helper functions
+        try:
+            from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token
+            user_id = get_user_id_from_token(request)
+            user_data = get_user_data_from_token(request)
+            if user_data:
+                username = (
+                    user_data.get('cognito:username') or
+                    user_data.get('preferred_username') or
+                    user_data.get('username') or
+                    user_data.get('email')
+                )
+                user_email = user_data.get('email')
+        except Exception:
+            pass
+    
+    # Fallback to session token
+    if not user_id:
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            try:
+                import jwt as pyjwt
+                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                user_id = decoded.get('sub')
+                username = (
+                    decoded.get('cognito:username') or
+                    decoded.get('preferred_username') or
+                    decoded.get('username') or
+                    decoded.get('email')
+                )
+                user_email = decoded.get('email')
+            except Exception:
+                pass
+    
+    # Require authentication
+    if not user_id:
+        return JsonResponse({'error': 'User not authenticated'}, status=401)
+    
+    # Load user's plantings
+    try:
+        from .dynamodb_helper import load_user_plantings
+        plantings = load_user_plantings(user_id or username)
+    except Exception as e:
+        logger.exception('Error loading plantings for notification summaries: %s', e)
+        return JsonResponse({'error': 'Failed to load plantings'}, status=500)
+    
+    # Build notification summaries (upcoming tasks in next 7 days)
+    summaries = []
+    today = date.today()
+    days_ahead = 7
+    
+    for planting in plantings:
+        crop_name = planting.get('crop_name', 'Unknown Crop')
+        planting_date_str = planting.get('planting_date', '')
+        plan = planting.get('plan', [])
+        
+        if not plan:
+            continue
+        
+        # Check for upcoming tasks in the next 7 days
+        for task in plan:
+            task_due_date_str = task.get('due_date', '')
+            if not task_due_date_str:
+                continue
+            
+            try:
+                task_due_date = date.fromisoformat(task_due_date_str)
+                days_until = (task_due_date - today).days
+                
+                # Include tasks due in next 7 days (including today)
+                if 0 <= days_until <= days_ahead:
+                    task_name = task.get('task', 'Task')
+                    summary = {
+                        'crop_name': crop_name,
+                        'task': task_name,
+                        'due_date': task_due_date_str,
+                        'days_until': days_until,
+                        'planting_date': planting_date_str,
+                        'batch_id': planting.get('batch_id', ''),
+                    }
+                    summaries.append(summary)
+            except (ValueError, TypeError):
+                continue
+    
+    # Sort by due_date (soonest first)
+    summaries.sort(key=lambda x: x.get('due_date', ''))
+    
+    # Build email summary text (this is what would be sent via email)
+    email_summary = ""
+    if summaries:
+        email_summary = f"Hello {username or user_email or 'User'},\n\n"
+        email_summary += "Here are your upcoming harvest reminders:\n\n"
+        
+        for summary in summaries:
+            days_text = "today" if summary['days_until'] == 0 else f"in {summary['days_until']} day(s)"
+            email_summary += f"• {summary['crop_name']}: {summary['task']} due {days_text} ({summary['due_date']})\n"
+        
+        email_summary += "\nThanks,\nSmartHarvester"
+    
+    return JsonResponse({
+        'success': True,
+        'email': user_email,
+        'summaries': summaries,
+        'email_summary': email_summary,
+        'count': len(summaries)
+    })

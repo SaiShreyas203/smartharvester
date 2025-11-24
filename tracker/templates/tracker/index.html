@@ -127,7 +127,7 @@
                 Add New Planting
             </a>
 
-            <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;" title="Toggle notifications" onclick="toggleNotifications()">{% if notifications_enabled %}🔔{% else %}🔕{% endif %}</button>
+            <button id="notification-btn" class="action-btn" style="width:35px; height:35px; font-size:1.2em;" title="Click to view notifications | Right-click to toggle on/off">{% if notifications_enabled %}🔔{% else %}🔕{% endif %}</button>
 
             <div id="profile-icon" class="avatar" style="cursor:pointer; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-weight:bold;">
                 {{ user.username|slice:":2"|upper }}
@@ -370,10 +370,16 @@
 
 <!-- Notification Modal -->
 <div id="notification-modal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 400px;">
+    <div class="modal-content" style="max-width: 500px; max-height: 80vh; overflow-y: auto;">
         <button class="modal-close" onclick="closeNotification()">&times;</button>
         <h2 style="color: var(--primary-color); margin-top: 0;">Notifications</h2>
-        <p>Upcoming harvest!</p>
+        <div id="notification-content">
+            <p style="color: var(--text-muted);">Loading notifications...</p>
+        </div>
+        <div id="notification-email-summary" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color); display: none;">
+            <h3 style="color: var(--primary-color); font-size: 1.1em; margin-bottom: 10px;">Email Summary</h3>
+            <pre id="email-summary-text" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; white-space: pre-wrap; font-family: inherit; font-size: 0.9em; color: var(--text-color);"></pre>
+        </div>
     </div>
 </div>
 
@@ -561,10 +567,21 @@
         }
     }
 
+    // Notification button - click to open modal, right-click or long-press to toggle
     const notificationBtn = document.getElementById('notification-btn');
     if (notificationBtn) {
-        notificationBtn.addEventListener('click', toggleNotifications);
-        notificationBtn.title = notificationsEnabled ? 'Notifications enabled - Click to disable' : 'Notifications disabled - Click to enable';
+        notificationBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            openNotificationModal();
+        });
+        
+        // Right-click to toggle notifications
+        notificationBtn.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            toggleNotifications();
+        });
+        
+        notificationBtn.title = 'Click to view notifications | Right-click to toggle on/off';
     }
 
     function closeDashboard() {
@@ -574,6 +591,80 @@
     function closeNotification() {
         const nm = document.getElementById('notification-modal');
         if (nm) nm.style.display = 'none';
+    }
+
+    // Load and display notification summaries
+    async function loadNotificationSummaries() {
+        const contentDiv = document.getElementById('notification-content');
+        const emailSummaryDiv = document.getElementById('notification-email-summary');
+        const emailSummaryText = document.getElementById('email-summary-text');
+        
+        if (!contentDiv) return;
+        
+        try {
+            const response = await fetch('{% url "get_notification_summaries" %}', {
+                method: 'GET',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                const summaries = data.summaries || [];
+                
+                if (summaries.length === 0) {
+                    contentDiv.innerHTML = '<p style="color: var(--text-muted);">No upcoming notifications. All caught up! 🎉</p>';
+                    if (emailSummaryDiv) emailSummaryDiv.style.display = 'none';
+                } else {
+                    let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                    
+                    summaries.forEach((summary) => {
+                        const daysText = summary.days_until === 0 ? 'Today' : 
+                                        summary.days_until === 1 ? 'Tomorrow' : 
+                                        `In ${summary.days_until} days`;
+                        const urgencyColor = summary.days_until === 0 ? '#ff6b6b' : 
+                                           summary.days_until <= 2 ? '#ffa500' : 
+                                           '#5cb85c';
+                        
+                        html += `
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; border-left: 4px solid ${urgencyColor};">
+                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                                    <strong style="color: var(--primary-color);">${summary.crop_name}</strong>
+                                    <span style="color: ${urgencyColor}; font-weight: bold; font-size: 0.9em;">${daysText}</span>
+                                </div>
+                                <div style="color: var(--text-color); margin-bottom: 4px;">${summary.task}</div>
+                                <div style="color: var(--text-muted); font-size: 0.85em;">Due: ${summary.due_date}</div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    contentDiv.innerHTML = html;
+                    
+                    // Show email summary
+                    if (data.email_summary && emailSummaryDiv && emailSummaryText) {
+                        emailSummaryText.textContent = data.email_summary;
+                        emailSummaryDiv.style.display = 'block';
+                    }
+                }
+            } else {
+                contentDiv.innerHTML = '<p style="color: var(--text-muted);">Unable to load notifications.</p>';
+            }
+        } catch (error) {
+            console.error('Error loading notification summaries:', error);
+            contentDiv.innerHTML = '<p style="color: var(--text-muted);">Error loading notifications. Please try again later.</p>';
+        }
+    }
+
+    // Open notification modal and load summaries
+    function openNotificationModal() {
+        const nm = document.getElementById('notification-modal');
+        if (nm) {
+            nm.style.display = 'flex';
+            loadNotificationSummaries();
+        }
     }
 </script>
 </body>

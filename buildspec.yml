@@ -1,11 +1,3 @@
-# Elastic Beanstalk CodeBuild Integration
-# Note: If not using CodeBuild, you can remove this section or let EB create the role automatically
-eb_codebuild_settings:
-  # CodeBuildServiceRole: "arn:aws:iam::YOUR_ACCOUNT_ID:role/codebuild-service-role"  # Optional: Remove if EB should create role
-  ComputeType: "BUILD_GENERAL1_SMALL"
-  Image: "aws/codebuild/standard:7.0"
-  TimeoutInMinutes: 60
-
 version: 0.2
 
 phases:
