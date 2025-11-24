@@ -580,15 +580,29 @@ def save_planting(request):
 
     # Validate required fields
     if not crop_name or not planting_date_str:
-        logger.error("Missing required fields in save_planting")
-        return redirect('index')
+        logger.error("Missing required fields in save_planting: crop_name=%s, planting_date_str=%s", crop_name, planting_date_str)
+        # Return a proper error response instead of redirect to avoid 502
+        from django.http import HttpResponseBadRequest
+        return HttpResponseBadRequest("Missing required fields: crop_name and planting_date are required")
 
-    planting_date = _date.fromisoformat(planting_date_str)
+    # Parse planting date with error handling
+    try:
+        planting_date = _date.fromisoformat(planting_date_str)
+    except (ValueError, AttributeError) as e:
+        logger.error("Invalid planting_date format in save_planting: %s - %s", planting_date_str, e)
+        from django.http import HttpResponseBadRequest
+        return HttpResponseBadRequest(f"Invalid planting_date format: {planting_date_str}")
 
-    # Build plan
-    plant_data = load_plant_data()
-    calculate = _get_calculate_plan()
-    calculated_plan = calculate(crop_name, planting_date, plant_data)
+    # Build plan with error handling
+    try:
+        plant_data = load_plant_data()
+        calculate = _get_calculate_plan()
+        calculated_plan = calculate(crop_name, planting_date, plant_data)
+    except Exception as e:
+        logger.exception("Error building planting plan: %s", e)
+        # Use empty plan if calculation fails
+        calculated_plan = []
+        logger.warning("Using empty plan due to calculation error")
 
     # Convert due_date in plan to ISO strings for storage
     for task in calculated_plan:

@@ -168,21 +168,33 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-# -------- AWS S3 KEYS (can be empty in dev) --------
+# -------- AWS CONFIGURATION --------
+# AWS Region (used by all AWS services)
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
+# -------- AWS S3 CONFIGURATION --------
+# S3 bucket for storing planting images
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
-AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME")
-AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "us-east-1")
+AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME") or os.environ.get("S3_BUCKET", "terratrack-media")
+AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", AWS_REGION)
 AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com" if AWS_STORAGE_BUCKET_NAME else ""
 
 # -------- AWS DYNAMODB CONFIGURATION --------
-DYNAMODB_USERS_TABLE_NAME = os.getenv("DYNAMODB_USERS_TABLE_NAME", "users")
-DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv("DYNAMODB_PLANTINGS_TABLE_NAME", "plantings")
+# DynamoDB tables for users and plantings
+DYNAMODB_USERS_TABLE_NAME = os.getenv("DYNAMODB_USERS_TABLE_NAME") or os.getenv("DYNAMO_USERS_TABLE", "users")
+DYNAMODB_PLANTINGS_TABLE_NAME = os.getenv("DYNAMODB_PLANTINGS_TABLE_NAME") or os.getenv("DYNAMO_PLANTINGS_TABLE", "plantings")
+DYNAMO_USERS_PK = os.getenv("DYNAMO_USERS_PK", "username")
 
 # -------- AWS SNS CONFIGURATION --------
+# SNS topic for harvest notifications
 SNS_TOPIC_ARN = os.getenv(
     "SNS_TOPIC_ARN", "arn:aws:sns:us-east-1:518029233624:harvest-notifications"
 )
+
+# -------- AWS COGNITO CONFIGURATION --------
+# Cognito User Pool ID (for JWKS verification)
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "us-east-1_HGEM2vRNI")
 
 # --- STATIC FILES (CSS, JavaScript, Images) ---
 if IS_PRODUCTION and AWS_STORAGE_BUCKET_NAME:
