@@ -81,8 +81,21 @@ def build_authorize_url(state=None, scope=None, redirect_uri=None):
             auth_endpoint = discovery.get('authorization_endpoint')
             if auth_endpoint:
                 base = auth_endpoint
+    except requests.exceptions.ConnectionError as e:
+        # DNS/name resolution error - domain doesn't exist or can't be reached
+        error_msg = str(e)
+        if 'NameResolutionError' in error_msg or 'Failed to resolve' in error_msg or 'Name or service not known' in error_msg:
+            raise ValueError(
+                f"Cognito domain '{domain}' cannot be resolved. "
+                "Please verify:\n"
+                "1. The domain exists in your Cognito User Pool (AWS Console > Cognito > User Pools > Your Pool > App integration > Domain)\n"
+                "2. The domain format is correct: <prefix>.auth.<region>.amazoncognito.com\n"
+                "3. If using a custom domain, ensure DNS is configured correctly"
+            )
+        # Other connection errors - just fallback to standard path
+        pass
     except Exception:
-        # Fallback to standard path if discovery fails
+        # Other errors (timeout, invalid JSON, etc.) - fallback to standard path
         pass
     
     params = {

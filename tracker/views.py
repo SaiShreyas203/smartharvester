@@ -535,26 +535,51 @@ def cognito_login(request):
     # Validate required environment variables
     if not settings.COGNITO_DOMAIN:
         logger.error('COGNITO_DOMAIN is not configured')
-        return HttpResponse("Cognito domain not configured. Please contact administrator.", status=500)
+        return HttpResponse(
+            "Cognito domain not configured. Please set COGNITO_DOMAIN environment variable.\n"
+            "Format: <prefix>.auth.<region>.amazoncognito.com",
+            status=500,
+            content_type='text/plain'
+        )
     if not settings.COGNITO_CLIENT_ID:
         logger.error('COGNITO_CLIENT_ID is not configured')
-        return HttpResponse("Cognito client ID not configured. Please contact administrator.", status=500)
+        return HttpResponse("Cognito client ID not configured. Please set COGNITO_CLIENT_ID environment variable.", status=500)
     if not settings.COGNITO_REDIRECT_URI:
         logger.error('COGNITO_REDIRECT_URI is not configured')
-        return HttpResponse("Cognito redirect URI not configured. Please contact administrator.", status=500)
+        return HttpResponse("Cognito redirect URI not configured. Please set COGNITO_REDIRECT_URI environment variable.", status=500)
+    
+    # Validate domain format (basic check)
+    domain = settings.COGNITO_DOMAIN
+    if not (domain.endswith('.amazoncognito.com') or domain.endswith('.auth.us-east-1.amazoncognito.com') or 
+            any(domain.endswith(f'.auth.{region}.amazoncognito.com') for region in ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2', 'eu-west-1', 'eu-central-1', 'ap-southeast-1', 'ap-southeast-2'])):
+        logger.warning('COGNITO_DOMAIN format may be incorrect: %s. Expected format: <prefix>.auth.<region>.amazoncognito.com', domain)
+        # Don't fail here, just warn - might be a custom domain
     
     from .cognito import build_authorize_url
     # Use the exact redirect_uri from settings to match Cognito configuration
     # This must match exactly what's configured in Cognito App Client settings
     redirect_uri = settings.COGNITO_REDIRECT_URI
     logger.info('Cognito login: Using redirect_uri from settings: %s', redirect_uri)
+    logger.info('Cognito login: Using domain: %s', domain)
     
     try:
         url = build_authorize_url(redirect_uri=redirect_uri)
         logger.info('Cognito login: Redirecting to Cognito authorize URL: %s', url)
         return redirect(url)
+    except ValueError as e:
+        logger.exception('Configuration error building Cognito authorize URL: %s', e)
+        return HttpResponse(f"Configuration error: {str(e)}", status=500)
     except Exception as e:
         logger.exception('Error building Cognito authorize URL: %s', e)
+        # Check if it's a connection/DNS error
+        error_msg = str(e)
+        if 'NameResolutionError' in error_msg or 'Failed to resolve' in error_msg or 'Name or service not known' in error_msg:
+            return HttpResponse(
+                f"Cognito domain '{domain}' cannot be resolved. "
+                "Please verify the COGNITO_DOMAIN is correct and exists in your Cognito User Pool.",
+                status=500,
+                content_type='text/plain'
+            )
         return HttpResponse(f"Error redirecting to Cognito: {str(e)}", status=500)
 
 
@@ -626,6 +651,23 @@ def cognito_callback(request):
     try:
         logger.info('Cognito callback: Exchanging code for tokens at %s', token_url)
         response = requests.post(token_url, data=data, headers=headers, auth=auth, timeout=10)
+    except requests.exceptions.ConnectionError as e:
+        # Handle DNS/name resolution errors specifically
+        error_msg = str(e)
+        if 'NameResolutionError' in error_msg or 'Failed to resolve' in error_msg or 'Name or service not known' in error_msg:
+            logger.error('Cognito domain resolution failed: %s. Domain: %s', error_msg, settings.COGNITO_DOMAIN)
+            return HttpResponse(
+                f"Cognito domain '{settings.COGNITO_DOMAIN}' cannot be resolved. "
+                "Please verify:\n"
+                "1. The COGNITO_DOMAIN environment variable is set correctly\n"
+                "2. The domain exists in your Cognito User Pool (check AWS Console)\n"
+                "3. The domain format is: <prefix>.auth.<region>.amazoncognito.com\n"
+                "4. If using a custom domain, ensure DNS is configured correctly",
+                status=500,
+                content_type='text/plain'
+            )
+        logger.exception('Connection error calling Cognito token endpoint: %s', e)
+        return HttpResponse(f"Connection error: {str(e)}", status=500)
     except requests.exceptions.RequestException as e:
         logger.exception('Error calling Cognito token endpoint: %s', e)
         return HttpResponse(f"Error fetching tokens: {str(e)}", status=500)
