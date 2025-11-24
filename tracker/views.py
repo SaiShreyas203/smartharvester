@@ -296,30 +296,49 @@ def add_planting_view(request):
     """
     # Check for authentication - same logic as save_planting
     user_id = None
+    is_authenticated = False
     
     # Check for Cognito user first (from middleware)
     if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
         user_id = request.cognito_user_id
+        is_authenticated = True
         logger.info('add_planting_view: Using Cognito user_id from middleware: %s', user_id)
     else:
-        # Try helper functions
-        try:
-            from .dynamodb_helper import get_user_id_from_token
-            user_id = get_user_id_from_token(request)
-            if user_id:
-                logger.info('add_planting_view: Using user_id from helper: %s', user_id)
-        except Exception:
-            logger.exception("Error extracting user identity")
+        # Check for Cognito tokens in session (user might be logged in but middleware hasn't processed yet)
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
+            is_authenticated = True
+            # Try to get user_id from token
+            try:
+                from .dynamodb_helper import get_user_id_from_token
+                user_id = get_user_id_from_token(request)
+                if user_id:
+                    logger.info('add_planting_view: Using user_id from helper: %s', user_id)
+            except Exception:
+                logger.exception("Error extracting user identity, but user has token")
+        
+        # Try helper functions if no token found
+        if not is_authenticated:
+            try:
+                from .dynamodb_helper import get_user_id_from_token
+                user_id = get_user_id_from_token(request)
+                if user_id:
+                    is_authenticated = True
+                    logger.info('add_planting_view: Using user_id from helper: %s', user_id)
+            except Exception:
+                logger.exception("Error extracting user identity")
     
     # Fallback to Django auth
-    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+    if not is_authenticated and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
         user_id = f"django_{getattr(request.user, 'pk', '')}"
+        is_authenticated = True
         logger.info('add_planting_view: Using Django user_id: %s', user_id)
     
-    # Require authentication - redirect to login if no user found
-    if not user_id:
-        logger.warning('add_planting_view: No authenticated user found, redirecting to login')
-        return redirect('login')
+    # Require authentication - redirect to Cognito login if no user found
+    if not is_authenticated:
+        logger.warning('add_planting_view: No authenticated user found, redirecting to Cognito login')
+        # Redirect to Cognito login instead of Django login
+        return redirect('cognito_login')
     
     plant_data = load_plant_data()
     context = {
