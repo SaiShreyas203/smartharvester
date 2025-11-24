@@ -1,8 +1,11 @@
 import time
+import logging
 from jose import jwt
 from jose.utils import base64url_decode
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 JWKS_CACHE = {'keys': None, 'fetched_at': 0}
 JWKS_TTL = 60 * 60  # 1 hour
@@ -20,7 +23,23 @@ def _fetch_jwks():
     now = time.time()
     if JWKS_CACHE['keys'] and now - JWKS_CACHE['fetched_at'] < JWKS_TTL:
         return JWKS_CACHE['keys']
-    jwks_url = f"https://cognito-idp.{settings.COGNITO_REGION}.amazonaws.com/{settings.COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+    
+    # Try to get USER_POOL_ID from settings, but it's optional for token verification
+    # We can verify tokens using the domain's JWKS endpoint instead
+    user_pool_id = getattr(settings, 'COGNITO_USER_POOL_ID', None)
+    cognito_region = getattr(settings, 'COGNITO_REGION', 'us-east-1')
+    
+    if user_pool_id:
+        # Use user pool specific JWKS endpoint
+        jwks_url = f"https://cognito-idp.{cognito_region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
+    else:
+        # Fallback: use domain-based JWKS endpoint (works if COGNITO_DOMAIN is set)
+        cognito_domain = getattr(settings, 'COGNITO_DOMAIN', None)
+        if cognito_domain:
+            jwks_url = f"https://{cognito_domain}/.well-known/jwks.json"
+        else:
+            raise ValueError("Either COGNITO_USER_POOL_ID or COGNITO_DOMAIN must be set for token verification")
+    
     # import requests lazily so missing deps won't crash Django at import time
     import requests
     r = requests.get(jwks_url, timeout=5)
@@ -34,7 +53,17 @@ def _fetch_jwks():
 def verify_id_token(id_token, audience=None):
     """Verify Cognito ID token and return payload or raise an exception."""
     if audience is None:
-        audience = settings.COGNITO_CLIENT_ID
+        audience = getattr(settings, 'COGNITO_CLIENT_ID', None)
+        if not audience:
+            # If no client ID, try to decode without verification (for development)
+            # In production, you should always have COGNITO_CLIENT_ID set
+            logger.warning("COGNITO_CLIENT_ID not set, decoding token without verification")
+            try:
+                import jwt as pyjwt
+                return pyjwt.decode(id_token, options={"verify_signature": False})
+            except Exception:
+                raise ValueError("COGNITO_CLIENT_ID is required for token verification")
+    
     jwks = _fetch_jwks()
     # jose.jwt.decode will handle key selection with provided jwks
     payload = jwt.decode(id_token, jwks, algorithms=['RS256'], audience=audience)

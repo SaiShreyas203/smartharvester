@@ -30,6 +30,7 @@ Copy and paste this into the file (replace `your-django-secret-key-here` with yo
 
 ```ini
 # Cognito Configuration
+# COGNITO_USER_POOL_ID is optional (token verification can use COGNITO_DOMAIN)
 COGNITO_USER_POOL_ID=us-east-1_HGEM2vRNI
 COGNITO_REGION=us-east-1
 COGNITO_DOMAIN=smartcrop-rocky-app.auth.us-east-1.amazoncognito.com

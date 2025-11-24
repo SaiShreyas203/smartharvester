@@ -117,16 +117,29 @@ def index(request):
             dynamodb_plantings = load_user_plantings(user_id)
             if dynamodb_plantings:
                 user_plantings = dynamodb_plantings
-                logger.info('Loaded %d plantings from DynamoDB', len(user_plantings))
+                logger.info('Loaded %d plantings from DynamoDB for user_id: %s', len(user_plantings), user_id)
         except Exception as e:
             logger.exception('Error loading from DynamoDB: %s', e)
 
-    # If no DynamoDB data, use session
+    # If no DynamoDB data, use session (but filter by user_id if available)
     if not user_plantings:
         session_plantings = request.session.get('user_plantings', [])
         if session_plantings:
-            user_plantings = session_plantings
-            logger.info('Using %d plantings from session', len(user_plantings))
+            # Filter session plantings by user_id if we have one (to avoid cross-user data)
+            if user_id:
+                filtered_session = [
+                    p for p in session_plantings 
+                    if p.get('user_id') == user_id or p.get('username') == username
+                ]
+                if filtered_session:
+                    user_plantings = filtered_session
+                    logger.info('Using %d plantings from session (filtered by user_id: %s)', len(user_plantings), user_id)
+                else:
+                    logger.info('Session has %d plantings but none match user_id: %s', len(session_plantings), user_id)
+            else:
+                # No user_id, use all session plantings (fallback for anonymous users)
+                user_plantings = session_plantings
+                logger.info('Using %d plantings from session (no user_id filter)', len(user_plantings))
 
     today = date.today()
     ongoing, upcoming, past = [], [], []
@@ -181,50 +194,133 @@ def index(request):
     logger.info('Processed plantings: ongoing=%d, upcoming=%d, past=%d', len(ongoing), len(upcoming), len(past))
 
     # Get user info and notification preference (best-effort)
+    # Get user information for display and notifications
     notifications_enabled = True
-    user_email = None
-    username = None
-    try:
-        user_data = None
-        if get_user_data_from_token:
-            try:
-                user_data = get_user_data_from_token(request)
-            except Exception:
-                # If function expects a token string, try using session id_token
+    # Use the user data we already extracted above (from middleware or helpers)
+    # If not set, try to get it again
+    if not user_email or not user_name:
+        try:
+            # Check Cognito payload first (from middleware - fastest)
+            if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                payload = request.cognito_payload
+                if not user_email:
+                    user_email = payload.get('email')
+                if not user_name:
+                    user_name = payload.get('name') or payload.get('preferred_username') or payload.get('cognito:username')
+                username = user_name or user_email
+                logger.info('Index: Using user data from Cognito payload: email=%s, name=%s', user_email, user_name)
+            elif get_user_data_from_token:
                 try:
-                    id_token = request.session.get('id_token')
-                    user_data = get_user_data_from_token(id_token) if id_token else None
+                    user_data = get_user_data_from_token(request)
+                    if user_data:
+                        if not user_email:
+                            user_email = user_data.get('email')
+                        if not user_name:
+                            user_name = user_data.get('name') or user_data.get('preferred_username') or user_data.get('cognito:username')
+                        username = user_name or user_email
                 except Exception:
-                    user_data = None
+                    # If function expects a token string, try using session id_token
+                    try:
+                        id_token = request.session.get('id_token')
+                        if id_token:
+                            user_data = get_user_data_from_token(id_token)
+                            if user_data:
+                                if not user_email:
+                                    user_email = user_data.get('email')
+                                if not user_name:
+                                    user_name = user_data.get('name') or user_data.get('preferred_username') or user_data.get('cognito:username')
+                                username = user_name or user_email
+                    except Exception:
+                        pass
 
-        if not user_data and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-            # Best-effort: use Django user info
-            user_email = request.user.email
-            username = request.user.username
+            # Fallback to Django auth
+            if (not user_email or not user_name) and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+                if not user_email:
+                    user_email = getattr(request.user, 'email', None)
+                if not user_name:
+                    user_name = request.user.get_full_name() or request.user.username
+                username = user_name or user_email
+        except Exception as e:
+            logger.exception('Error getting user data: %s', e)
 
-        if user_data:
-            user_email = user_data.get('email') or user_email
-            username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('sub') or username
-            if get_user_notification_preference and username:
-                try:
-                    notifications_enabled = get_user_notification_preference(username)
-                except Exception:
-                    logger.exception('Error getting notification preference for %s', username)
-    except Exception as e:
-        logger.exception('Error getting user notification preference: %s', e)
+    # Set username for template (use name or email as fallback)
+    username = user_name or user_email or username if 'username' in locals() else (user_name or user_email or 'User')
+
+    # Get notification preference
+    if username and get_user_notification_preference:
+        try:
+            notifications_enabled = get_user_notification_preference(username)
+        except Exception:
+            logger.exception('Error getting notification preference for %s', username)
+
+    logger.info('Index: Final user data - email=%s, name=%s, username=%s, user_id=%s', 
+                user_email, user_name, username, user_id)
+
+    # Create a user-like object for the template (works for both Cognito and Django users)
+    class UserData:
+        def __init__(self, username, email, name=None, user_id=None):
+            self.username = username or email or 'User'
+            self.email = email or ''
+            self.name = name or username or email or 'User'
+            self.user_id = user_id
+            # For compatibility with Django user methods
+            self.get_full_name = lambda: self.name
+            self.first_name = name.split()[0] if name and ' ' in name else ''
+            self.last_name = ' '.join(name.split()[1:]) if name and ' ' in name else ''
+    
+    template_user = UserData(
+        username=username or user_email or 'User',
+        email=user_email or '',
+        name=user_name or username or user_email or 'User',
+        user_id=user_id
+    )
 
     context = {
         'ongoing': ongoing,
         'upcoming': upcoming,
         'past': past,
         'notifications_enabled': notifications_enabled,
+        'user': template_user,  # Main user object for template
         'user_email': user_email,
-        'username': username
+        'username': username,
+        'user_name': user_name,
+        'user_id': user_id,
     }
     return render(request, 'tracker/index.html', context)
 
 
 def add_planting_view(request):
+    """
+    Display form to add a new planting.
+    Requires authentication (Cognito or Django).
+    """
+    # Check for authentication - same logic as save_planting
+    user_id = None
+    
+    # Check for Cognito user first (from middleware)
+    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+        user_id = request.cognito_user_id
+        logger.info('add_planting_view: Using Cognito user_id from middleware: %s', user_id)
+    else:
+        # Try helper functions
+        try:
+            from .dynamodb_helper import get_user_id_from_token
+            user_id = get_user_id_from_token(request)
+            if user_id:
+                logger.info('add_planting_view: Using user_id from helper: %s', user_id)
+        except Exception:
+            logger.exception("Error extracting user identity")
+    
+    # Fallback to Django auth
+    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+        user_id = f"django_{getattr(request.user, 'pk', '')}"
+        logger.info('add_planting_view: Using Django user_id: %s', user_id)
+    
+    # Require authentication - redirect to login if no user found
+    if not user_id:
+        logger.warning('add_planting_view: No authenticated user found, redirecting to login')
+        return redirect('login')
+    
     plant_data = load_plant_data()
     context = {
         'plant_names': [p['name'] for p in plant_data['plants']],
@@ -250,6 +346,40 @@ def save_planting(request):
 
     logger = logging.getLogger(__name__)
 
+    # First check for Cognito user (from middleware) - same logic as index view
+    user_id = None
+    username = None
+    
+    # Check for Cognito user first (from middleware - fastest path)
+    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+        user_id = request.cognito_user_id
+        if hasattr(request, 'cognito_payload') and request.cognito_payload:
+            payload = request.cognito_payload
+            username = payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email')
+        logger.info('save_planting: Using Cognito user_id from middleware: %s, username: %s', user_id, username)
+    else:
+        # Try helper functions
+        try:
+            from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token
+            user_id = get_user_id_from_token(request)
+            user_data = get_user_data_from_token(request)
+            if user_data:
+                username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('email')
+            logger.info('save_planting: Using user_id from helper: %s, username: %s', user_id, username)
+        except Exception:
+            logger.exception("Error extracting user identity from helpers")
+
+    # Fallback to Django auth details if available
+    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+        username = getattr(request.user, 'username', None)
+        user_id = f"django_{getattr(request.user, 'pk', '')}"
+        logger.info('save_planting: Using Django user_id: %s, username: %s', user_id, username)
+
+    # Require authentication - redirect to login if no user found
+    if not user_id:
+        logger.warning('save_planting: No authenticated user found, redirecting to login')
+        return redirect('login')
+
     crop_name = request.POST.get('crop_name')
     planting_date_str = request.POST.get('planting_date')
     # fixed quoting for strftime
@@ -257,27 +387,8 @@ def save_planting(request):
     notes = request.POST.get('notes', '')
 
     # Lazy helpers
-    from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token, save_planting_to_dynamodb
+    from .dynamodb_helper import save_planting_to_dynamodb
     from .s3_helper import upload_planting_image
-    # load_plant_data is defined earlier in this views.py file
-    # from .views_helpers import load_plant_data  <- removed (caused ModuleNotFoundError)
-
-    # Resolve stable user id (Cognito sub or django_<pk>) and username (users table PK)
-    user_id = None
-    username = None
-    try:
-        user_id = get_user_id_from_token(request)
-        user_data = get_user_data_from_token(request)
-        if user_data:
-            username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('email')
-    except Exception:
-        logger.exception("Error extracting user identity")
-
-    # Fallback to Django auth details if available
-    if not username and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-        username = getattr(request.user, 'username', None)
-    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-        user_id = f"django_{getattr(request.user, 'pk', '')}"
 
     # Image upload -> returns public URL if s3_helper uses public-read, otherwise presigned URL
     image_url = ""
@@ -344,17 +455,35 @@ def save_planting(request):
 
 def edit_planting_view(request, planting_id):
     """Edit planting view - loads from DynamoDB or session"""
-    load_user_plantings = _get_helper('load_user_plantings')
-    get_user_id_from_token = _get_helper('get_user_id_from_token', 'get_user_id_from_request')
-
+    # Check for authentication - same logic as other views
     user_id = None
-    try:
-        if get_user_id_from_token:
-            user_id = get_user_id_from_token(request)
-        elif hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-            user_id = str(request.user.pk)
-    except Exception:
-        logger.exception('Error getting user id in edit_planting_view')
+    
+    # Check for Cognito user first (from middleware)
+    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+        user_id = request.cognito_user_id
+        logger.info('edit_planting_view: Using Cognito user_id from middleware: %s', user_id)
+    else:
+        # Try helper functions
+        load_user_plantings = _get_helper('load_user_plantings')
+        get_user_id_from_token = _get_helper('get_user_id_from_token', 'get_user_id_from_request')
+        try:
+            if get_user_id_from_token:
+                user_id = get_user_id_from_token(request)
+                logger.info('edit_planting_view: Using user_id from helper: %s', user_id)
+        except Exception:
+            logger.exception('Error getting user id in edit_planting_view')
+    
+    # Fallback to Django auth
+    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+        user_id = str(request.user.pk)
+        logger.info('edit_planting_view: Using Django user_id: %s', user_id)
+    
+    # Require authentication
+    if not user_id:
+        logger.warning('edit_planting_view: No authenticated user found, redirecting to login')
+        return redirect('login')
+    
+    load_user_plantings = _get_helper('load_user_plantings')
 
     user_plantings = []
     if user_id and load_user_plantings:
@@ -425,6 +554,38 @@ def update_planting(request, planting_id):
     # Only accept POST updates
     if request.method != "POST":
         return redirect("index")
+    
+    # Check for authentication - same logic as save_planting
+    user_id = None
+    username = None
+    
+    # Check for Cognito user first (from middleware)
+    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+        user_id = request.cognito_user_id
+        if hasattr(request, 'cognito_payload') and request.cognito_payload:
+            payload = request.cognito_payload
+            username = payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email')
+        logger.info('update_planting: Using Cognito user_id from middleware: %s', user_id)
+    else:
+        # Try helper functions
+        try:
+            from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token
+            user_id = get_user_id_from_token(request)
+            user_data = get_user_data_from_token(request)
+            if user_data:
+                username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('email')
+        except Exception:
+            logger.exception("Error extracting user identity")
+    
+    # Fallback to Django auth
+    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+        username = getattr(request.user, 'username', None)
+        user_id = f"django_{getattr(request.user, 'pk', '')}"
+    
+    # Require authentication
+    if not user_id:
+        logger.warning('update_planting: No authenticated user found, redirecting to login')
+        return redirect('login')
 
     table = dynamo_resource().Table(DYNAMO_PLANTINGS_TABLE)
 
@@ -450,11 +611,8 @@ def update_planting(request, planting_id):
     # Optional image upload handling
     if "image" in request.FILES and request.FILES["image"].name:
         try:
-            # determine an upload owner (prefer an explicit user_id posted or the authenticated user)
-            upload_owner = request.POST.get("user_id")
-            if not upload_owner and hasattr(request, "user") and getattr(request.user, "is_authenticated", False):
-                upload_owner = f"django_{getattr(request.user,'pk','')}"
-            upload_owner = upload_owner or "anonymous"
+            # Use the authenticated user_id we already determined above
+            upload_owner = user_id or username or "anonymous"
             image_url = upload_planting_image(request.FILES["image"], upload_owner)
             if image_url:
                 add_update("image_url", image_url)
@@ -485,19 +643,36 @@ def delete_planting(request, planting_id):
     if request.method != 'POST':
         return redirect('index')
 
+    # Check for authentication - same logic as other views
+    user_id = None
+    
+    # Check for Cognito user first (from middleware)
+    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+        user_id = request.cognito_user_id
+        logger.info('delete_planting: Using Cognito user_id from middleware: %s', user_id)
+    else:
+        # Try helper functions
+        get_user_id_from_token = _get_helper('get_user_id_from_token', 'get_user_id_from_request')
+        try:
+            if get_user_id_from_token:
+                user_id = get_user_id_from_token(request)
+                logger.info('delete_planting: Using user_id from helper: %s', user_id)
+        except Exception:
+            logger.exception('Error getting user id in delete_planting')
+    
+    # Fallback to Django auth
+    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+        user_id = str(request.user.pk)
+        logger.info('delete_planting: Using Django user_id: %s', user_id)
+    
+    # Require authentication
+    if not user_id:
+        logger.warning('delete_planting: No authenticated user found, redirecting to login')
+        return redirect('login')
+
     load_user_plantings = _get_helper('load_user_plantings')
     delete_planting_from_dynamodb = _get_helper('delete_planting_from_dynamodb', 'delete_planting')
-    get_user_id_from_token = _get_helper('get_user_id_from_token', 'get_user_id_from_request')
     delete_image_from_s3 = _get_helper('delete_image_from_s3')
-
-    user_id = None
-    try:
-        if get_user_id_from_token:
-            user_id = get_user_id_from_token(request)
-        elif hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-            user_id = str(request.user.pk)
-    except Exception:
-        logger.exception('Error getting user id in delete_planting')
 
     user_plantings = []
     if user_id and load_user_plantings:
