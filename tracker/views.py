@@ -81,19 +81,35 @@ def index(request):
 
     user_plantings = []
 
-    # Determine user id
+    # Determine user id - check middleware first, then helpers, then fallback
     user_id = None
+    user_email = None
+    user_name = None
     try:
-        if get_user_id_from_token:
+        # First check if middleware attached user info (fastest path)
+        if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+            user_id = request.cognito_user_id
+            if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                user_email = request.cognito_payload.get('email')
+                user_name = request.cognito_payload.get('name') or request.cognito_payload.get('preferred_username')
+            logger.info('Index: Using user_id from middleware: %s', user_id)
+        elif get_user_id_from_token:
             user_id = get_user_id_from_token(request)
+            if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                user_email = request.cognito_payload.get('email')
+                user_name = request.cognito_payload.get('name') or request.cognito_payload.get('preferred_username')
+            logger.info('Index: Using user_id from helper: %s', user_id)
         else:
             # Fallback: use django auth user id if logged in
             if hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
                 user_id = str(request.user.pk)
+                user_email = getattr(request.user, 'email', None)
+                user_name = getattr(request.user, 'username', None)
+            logger.info('Index: Using user_id from Django auth: %s', user_id)
     except Exception as e:
         logger.exception('Error fetching user id: %s', e)
 
-    logger.info('Index: user_id = %s', user_id if user_id else 'None')
+    logger.info('Index: user_id = %s, email = %s, name = %s', user_id if user_id else 'None', user_email, user_name)
 
     # Try to load from DynamoDB first if user_id exists
     if user_id and load_user_plantings:
@@ -831,33 +847,89 @@ def user_profile_api(request):
     })
 
 
-@login_required
 def profile(request):
-    """Handle profile view and profile updates. (web UI)"""
-    if request.method == 'POST':
+    """Handle profile view and profile updates. (web UI) - Works with Cognito and Django auth"""
+    # Get user info from Cognito tokens or Django auth
+    user_data = {}
+    user_id = None
+    
+    # Check for Cognito user first (from middleware)
+    if hasattr(request, 'cognito_payload') and request.cognito_payload:
+        payload = request.cognito_payload
+        user_data = {
+            'username': payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email', 'User'),
+            'email': payload.get('email', ''),
+            'name': payload.get('name') or f"{payload.get('given_name', '')} {payload.get('family_name', '')}".strip(),
+            'user_id': payload.get('sub'),
+            'first_name': payload.get('given_name', ''),
+            'last_name': payload.get('family_name', ''),
+        }
+        user_id = payload.get('sub')
+        logger.info('Profile: Using Cognito user data for user_id: %s, email: %s', user_id, user_data.get('email'))
+    elif hasattr(request, 'session') and request.session.get('id_token'):
+        # Try to decode from session token
+        get_user_data_from_token = _get_helper('get_user_data_from_token')
+        if get_user_data_from_token:
+            payload = get_user_data_from_token(request) or {}
+            user_data = {
+                'username': payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email', 'User'),
+                'email': payload.get('email', ''),
+                'name': payload.get('name') or f"{payload.get('given_name', '')} {payload.get('family_name', '')}".strip(),
+                'user_id': payload.get('sub'),
+                'first_name': payload.get('given_name', ''),
+                'last_name': payload.get('family_name', ''),
+            }
+            user_id = payload.get('sub')
+    # Fallback to Django auth
+    elif hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
         user = request.user
-        username = request.POST.get('username')
-        email = request.POST.get('email')
-        password = request.POST.get('password')
+        user_data = {
+            'username': user.username,
+            'email': getattr(user, 'email', ''),
+            'name': user.get_full_name() or user.username,
+            'user_id': str(user.pk),
+            'first_name': getattr(user, 'first_name', ''),
+            'last_name': getattr(user, 'last_name', ''),
+        }
+        user_id = str(user.pk)
+    
+    # If no user found, redirect to login
+    if not user_id:
+        logger.warning('Profile: No user found, redirecting to login')
+        return redirect('login')
+    
+    if request.method == 'POST':
+        # For Cognito users, we can't update username/password in Django
+        # We could update DynamoDB user record if needed
+        if hasattr(request, 'cognito_payload'):
+            logger.info('Profile: Cognito user profile update requested (not implemented yet)')
+            # TODO: Update user in DynamoDB if needed
+            return redirect('/')
+        else:
+            # Django auth user - update as before
+            user = request.user
+            username = request.POST.get('username')
+            email = request.POST.get('email')
+            password = request.POST.get('password')
 
-        if username and username != user.username:
-            user.username = username
-            user.save()
-            logger.info('Profile updated: username changed to %s', username)
+            if username and username != user.username:
+                user.username = username
+                user.save()
+                logger.info('Profile updated: username changed to %s', username)
 
-        if email and email != user.email:
-            user.email = email
-            user.save()
-            logger.info('Profile updated: email changed to %s', email)
+            if email and email != user.email:
+                user.email = email
+                user.save()
+                logger.info('Profile updated: email changed to %s', email)
 
-        if password:
-            user.set_password(password)
-            user.save()
-            logger.info('Profile updated: password changed')
-
-        return redirect('/')
-
-    return render(request, 'profile.html')
+            if password:
+                user.set_password(password)
+                user.save()
+                logger.info('Profile updated: password changed')
+            return redirect('/')
+    
+    # Pass user data to template
+    return render(request, 'profile.html', {'user': user_data, 'cognito_user': hasattr(request, 'cognito_payload')})
 
 
 def signup(request):

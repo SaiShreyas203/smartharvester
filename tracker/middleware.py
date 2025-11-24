@@ -44,8 +44,12 @@ class CognitoTokenMiddleware:
             if id_token:
                 # Only verify token if it exists - if no token, let the view handle it
                 try:
-                    verify_id_token(id_token)
-                    logger.debug('CognitoTokenMiddleware: Token verified successfully')
+                    # Verify and decode the token to get user payload
+                    payload = verify_id_token(id_token)
+                    # Attach user payload to request for easy access in views
+                    request.cognito_payload = payload
+                    request.cognito_user_id = payload.get('sub') or payload.get('username') or payload.get('email')
+                    logger.debug('CognitoTokenMiddleware: Token verified successfully for user: %s', request.cognito_user_id)
                 except Exception as e:
                     logger.info('ID token verify failed: %s', e)
                     # Try to refresh if refresh_token is available
@@ -58,6 +62,14 @@ class CognitoTokenMiddleware:
                             request.session['cognito_tokens'] = new
                             request.session['id_token'] = new.get('id_token')
                             request.session['access_token'] = new.get('access_token')
+                            # Decode and attach the new token payload
+                            if new.get('id_token'):
+                                try:
+                                    payload = verify_id_token(new.get('id_token'))
+                                    request.cognito_payload = payload
+                                    request.cognito_user_id = payload.get('sub') or payload.get('username') or payload.get('email')
+                                except Exception:
+                                    pass
                             logger.info('CognitoTokenMiddleware: Token refreshed successfully')
                         except Exception as refresh_error:
                             logger.warning('Refresh failed: %s; clearing invalid tokens', refresh_error)

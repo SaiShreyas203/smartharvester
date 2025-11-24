@@ -1,0 +1,20 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowCognitoToInvokeLambda",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "cognito-idp.amazonaws.com"
+            },
+            "Action": "lambda:InvokeFunction",
+            "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:cognito-auto-confirm",
+            "Condition": {
+                "StringEquals": {
+                    "cognito-idp.amazonaws.com": "arn:aws:cognito-idp:REGION:ACCOUNT_ID:userpool/USER_POOL_ID"
+                }
+            }
+        }
+    ]
+}
+
