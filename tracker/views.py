@@ -79,22 +79,46 @@ def normalize_crop_name(crop_name: str, plant_data: dict = None) -> str:
     
     # Check exact match first
     if crop_name_clean in plant_data:
+        logger.debug('normalize_crop_name: Exact match found: "%s"', crop_name_clean)
         return crop_name_clean
     
-    # Check title case
+    # Check title case (e.g., "tomatoes" -> "Tomatoes", "bell peppers" -> "Bell Peppers")
     crop_title = crop_name_clean.title()
     if crop_title in plant_data:
+        logger.debug('normalize_crop_name: Title case match: "%s" -> "%s"', crop_name, crop_title)
         return crop_title
     
-    # Check case-insensitive match
+    # Check case-insensitive exact match
     crop_lower = crop_name_clean.lower()
     for key in plant_data.keys():
         if isinstance(plant_data.get(key), dict) and key.lower() == crop_lower:
-            logger.debug('normalize_crop_name: Normalized "%s" -> "%s"', crop_name, key)
+            logger.info('normalize_crop_name: Case-insensitive match: "%s" -> "%s"', crop_name, key)
             return key
     
-    # If not found, return original (stripped)
-    logger.warning('normalize_crop_name: Could not normalize "%s" to match any plant in data.json', crop_name)
+    # Try fuzzy matching: singular/plural variations (e.g., "Tomato" -> "Tomatoes")
+    crop_base = crop_lower.rstrip('s')  # Remove trailing 's'
+    for key in plant_data.keys():
+        if not isinstance(plant_data.get(key), dict):
+            continue
+        key_lower = key.lower()
+        key_base = key_lower.rstrip('s')
+        if crop_base and key_base and crop_base == key_base:
+            logger.info('normalize_crop_name: Singular/plural match: "%s" -> "%s"', crop_name, key)
+            return key
+    
+    # Try partial match (e.g., "Bell Pepper" matches "Bell Peppers")
+    for key in plant_data.keys():
+        if not isinstance(plant_data.get(key), dict):
+            continue
+        key_lower = key.lower()
+        if crop_lower in key_lower or key_lower in crop_lower:
+            logger.info('normalize_crop_name: Partial match: "%s" -> "%s"', crop_name, key)
+            return key
+    
+    # If not found, return original (stripped) but log warning
+    available_plants = [k for k in plant_data.keys() if isinstance(plant_data.get(k), dict)]
+    logger.warning('normalize_crop_name: Could not normalize "%s" to match any plant. Available: %s', 
+                  crop_name, available_plants[:10])
     return crop_name_clean
 
 
@@ -291,7 +315,7 @@ def index(request):
                 continue
 
             # Always regenerate plan using library to ensure it's up-to-date
-            crop_name_raw = planting.get('crop_name', '')
+            crop_name_raw = planting.get('crop_name', '').strip()
             planting_date_obj = planting.get('planting_date')
             plan = planting.get('plan', [])
             
@@ -308,15 +332,27 @@ def index(request):
                     # Normalize crop_name to match exact key in data.json
                     crop_name = normalize_crop_name(crop_name_raw, plant_data)
                     
-                    # Update planting dict with normalized name
+                    # Update planting dict with normalized name (ALWAYS update to ensure consistency)
+                    planting['crop_name'] = crop_name
                     if crop_name != crop_name_raw:
-                        planting['crop_name'] = crop_name
-                        logger.info('Normalized crop_name: "%s" -> "%s"', crop_name_raw, crop_name)
+                        logger.info('📝 Normalized crop_name: "%s" -> "%s"', crop_name_raw, crop_name)
+                    
+                    # Log what we're about to calculate
+                    logger.info('🔄 Regenerating plan for crop: "%s" (original: "%s"), planting_date: %s', 
+                              crop_name, crop_name_raw, planting_date_obj.isoformat())
+                    
+                    # Verify plant exists in data.json before calculating
+                    if isinstance(plant_data, dict) and crop_name in plant_data:
+                        logger.debug('✅ Crop "%s" found in data.json', crop_name)
+                    else:
+                        logger.error('❌ Crop "%s" NOT found in data.json. Available plants: %s', 
+                                   crop_name, list(plant_data.keys())[:10] if isinstance(plant_data, dict) else 'N/A')
                     
                     calculate = _get_calculate_plan()
                     calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
                     
                     if calculated_plan and len(calculated_plan) > 0:
+                        logger.info('✅ Generated %d tasks for "%s"', len(calculated_plan), crop_name)
                         # Convert dates to ISO strings first, then back to date objects for display
                         for task in calculated_plan:
                             if 'due_date' in task and isinstance(task['due_date'], date):
@@ -336,6 +372,7 @@ def index(request):
                             if planting_id:
                                 updated_planting = dict(planting)
                                 updated_planting['plan'] = calculated_plan
+                                updated_planting['crop_name'] = crop_name  # Ensure normalized name is saved
                                 # Ensure required fields for DynamoDB save
                                 if 'user_id' not in updated_planting and user_id:
                                     updated_planting['user_id'] = user_id
@@ -346,15 +383,24 @@ def index(request):
                                 
                                 saved_id = save_planting_to_dynamodb(updated_planting)
                                 if saved_id:
-                                    logger.info('✅ Auto-saved regenerated plan to DynamoDB for planting_id: %s', saved_id)
+                                    logger.info('✅ Auto-saved regenerated plan to DynamoDB for planting_id: %s (crop: %s)', saved_id, crop_name)
                         except Exception as save_error:
                             logger.warning('⚠️ Could not auto-save regenerated plan to DynamoDB: %s', save_error)
                     else:
-                        logger.warning('Plan calculator returned empty plan for %s, keeping existing', crop_name)
-                        planting['plan'] = plan if plan else []
+                        logger.error('❌ Plan calculator returned empty plan for "%s" (normalized from "%s"). Available plants: %s', 
+                                    crop_name, crop_name_raw, 
+                                    list(plant_data.keys())[:10] if isinstance(plant_data, dict) else 'N/A')
+                        # Even if empty, update the plan to empty list (this will show "No steps available")
+                        planting['plan'] = []
+                        # Also update crop_name to normalized version
+                        planting['crop_name'] = crop_name
                 except Exception as e:
-                    logger.exception('Error regenerating plan for planting %d (crop: %s): %s', i, crop_name, e)
+                    logger.exception('❌ Error regenerating plan for planting %d (crop: "%s"): %s', i, crop_name_raw, e)
                     planting['plan'] = plan if plan else []
+            else:
+                logger.warning('⚠️ Skipping plan regeneration: missing crop_name or planting_date (crop_name=%s, planting_date=%s)', 
+                             crop_name_raw, planting_date_obj)
+                planting['plan'] = plan if plan else []
             
             # Normalize plan due_date fields to date objects where possible for display
             for task in planting.get('plan', []):
