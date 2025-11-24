@@ -448,3 +448,92 @@ def get_user_notification_preference(username_or_userid: str) -> bool:
     except Exception as e:
         logger.exception("Error fetching notification preference for %s: %s", username_or_userid, e)
         return True
+    
+def get_user_plantings(user_id: str) -> List[Dict[str, Any]]:
+    """
+    Return plantings for a given user_id.
+    First tries a GSI named 'user_id-index'. If it doesn't exist or query fails,
+    falls back to a Scan with FilterExpression (slower).
+    """
+    try:
+        table = _table(DYNAMO_PLANTINGS_TABLE)
+        # Try GSI query first
+        try:
+            resp = table.query(IndexName="user_id-index", KeyConditionExpression=Key("user_id").eq(str(user_id)))
+            items = resp.get("Items", []) or []
+            logger.debug("Queried %d plantings for user %s via GSI", len(items), user_id)
+            return items
+        except ClientError as e:
+            logger.debug("GSI query failed for user_id=%s: %s. Falling back to scan.", user_id, e)
+        except Exception as e:
+            logger.debug("GSI query unexpected error: %s. Falling back to scan.", e)
+
+        # Fallback: scan with filter
+        items = []
+        scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
+        start_key = None
+        while True:
+            if start_key:
+                scan_kwargs["ExclusiveStartKey"] = start_key
+            resp = table.scan(**scan_kwargs)
+            items.extend(resp.get("Items", []) or [])
+            start_key = resp.get("LastEvaluatedKey")
+            if not start_key:
+                break
+        logger.debug("Scanned and found %d plantings for user %s", len(items), user_id)
+        return items
+    except ClientError as e:
+        logger.exception("DynamoDB ClientError loading plantings for user %s: %s", user_id, e)
+        return []
+    except Exception as e:
+        logger.exception("Unexpected error loading plantings for user %s: %s", user_id, e)
+        return []
+    finally:
+        return items    
+    return []
+
+def get_planting(user_id: str, planting_id: str) -> Dict[str, Any]:
+    """
+    Return a single planting for a given user_id and planting_id.
+    First tries a GSI named 'user_id-index'. If it doesn't exist or query fails,
+    falls back to a Scan with FilterExpression (slower).
+    """
+    try:
+        table = _table(DYNAMO_PLANTINGS_TABLE)
+        # Try GSI query first
+        try:
+            resp = table.query(IndexName="user_id-index", KeyConditionExpression=Key("user_id").eq(str(user_id)))
+            items = resp.get("Items", []) or []     
+            if items:
+                for item in items:
+                    if item.get("planting_id") == str(planting_id):
+                        return item
+        except ClientError as e:
+            logger.debug("GSI query failed for user_id=%s: %s. Falling back to scan.", user_id, e)
+        except Exception as e:
+            logger.debug("GSI query unexpected error: %s. Falling back to scan.", e)
+
+        # Fallback: scan with filter
+        items = []
+        scan_kwargs = {"FilterExpression": Attr("user_id").eq(str(user_id))}
+        start_key = None
+        while True:
+            if start_key:
+                scan_kwargs["ExclusiveStartKey"] = start_key            
+            resp = table.scan(**scan_kwargs)
+            items.extend(resp.get("Items", []) or [])
+            start_key = resp.get("LastEvaluatedKey")
+            if not start_key:
+                break
+        logger.debug("Scanned and found %d plantings for user %s", len(items), user_id)
+        return items
+    except ClientError as e:
+        logger.exception("DynamoDB ClientError loading plantings for user %s: %s", user_id, e)
+        return []
+    except Exception as e:
+        logger.exception("Unexpected error loading plantings for user %s: %s", user_id, e)
+        return []   
+    finally:
+        return items
+    return []   
+
