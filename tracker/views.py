@@ -85,19 +85,34 @@ def index(request):
     user_id = None
     user_email = None
     user_name = None
+    username = None  # For filtering session plantings
     try:
         # First check if middleware attached user info (fastest path)
         if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
             user_id = request.cognito_user_id
             if hasattr(request, 'cognito_payload') and request.cognito_payload:
-                user_email = request.cognito_payload.get('email')
-                user_name = request.cognito_payload.get('name') or request.cognito_payload.get('preferred_username')
+                payload = request.cognito_payload
+                user_email = payload.get('email')
+                user_name = payload.get('name') or payload.get('preferred_username')
+                username = (
+                    payload.get('cognito:username') or
+                    payload.get('preferred_username') or
+                    payload.get('username') or
+                    payload.get('email')
+                )
             logger.info('Index: Using user_id from middleware: %s', user_id)
         elif get_user_id_from_token:
             user_id = get_user_id_from_token(request)
             if hasattr(request, 'cognito_payload') and request.cognito_payload:
-                user_email = request.cognito_payload.get('email')
-                user_name = request.cognito_payload.get('name') or request.cognito_payload.get('preferred_username')
+                payload = request.cognito_payload
+                user_email = payload.get('email')
+                user_name = payload.get('name') or payload.get('preferred_username')
+                username = (
+                    payload.get('cognito:username') or
+                    payload.get('preferred_username') or
+                    payload.get('username') or
+                    payload.get('email')
+                )
             logger.info('Index: Using user_id from helper: %s', user_id)
         else:
             # Fallback: use django auth user id if logged in
@@ -105,15 +120,19 @@ def index(request):
                 user_id = str(request.user.pk)
                 user_email = getattr(request.user, 'email', None)
                 user_name = getattr(request.user, 'username', None)
+                username = getattr(request.user, 'username', None)
             logger.info('Index: Using user_id from Django auth: %s', user_id)
     except Exception as e:
         logger.exception('Error fetching user id: %s', e)
 
-    logger.info('Index: user_id = %s, email = %s, name = %s', user_id if user_id else 'None', user_email, user_name)
+    logger.info('Index: user_id = %s, email = %s, name = %s, username = %s', 
+                user_id if user_id else 'None', user_email, user_name, username)
 
     # ALWAYS load from DynamoDB first if user_id exists (permanent storage)
-    # Only use session as fallback if DynamoDB query fails (exception), not if it returns empty
+    # Then merge with session for immediate display (newly saved items may not be in DynamoDB yet)
     dynamodb_load_failed = False
+    dynamodb_plantings = []
+    
     if user_id and load_user_plantings:
         try:
             dynamodb_plantings = load_user_plantings(user_id)
@@ -133,43 +152,61 @@ def index(request):
                         return [convert_dynamo_types(item) for item in obj]
                     return obj
                 
-                user_plantings = [convert_dynamo_types(p) for p in dynamodb_plantings]
-                logger.info('✅ Loaded %d plantings from DynamoDB for user_id: %s (permanent storage)', len(user_plantings), user_id)
+                dynamodb_plantings = [convert_dynamo_types(p) for p in dynamodb_plantings]
+                logger.info('✅ Loaded %d plantings from DynamoDB for user_id: %s (permanent storage)', len(dynamodb_plantings), user_id)
             else:
-                # DynamoDB returned empty list - user has no plantings yet
-                user_plantings = []
                 logger.info('DynamoDB returned empty list for user_id: %s (no plantings saved yet)', user_id)
         except Exception as e:
             logger.exception('❌ Error loading from DynamoDB: %s - will try session fallback', e)
             dynamodb_load_failed = True
-            user_plantings = []
 
-    # Only use session as fallback if DynamoDB query failed (exception)
-    # If DynamoDB returned empty list, that's correct - user has no plantings
-    if dynamodb_load_failed and not user_plantings:
-        session_plantings = request.session.get('user_plantings', [])
-        if session_plantings:
-            # Filter session plantings by user_id if we have one (to avoid cross-user data)
-            if user_id:
-                filtered_session = [
-                    p for p in session_plantings 
-                    if p.get('user_id') == user_id or p.get('username') == username
-                ]
-                if filtered_session:
-                    user_plantings = filtered_session
-                    logger.warning('⚠️ Using %d plantings from session (DynamoDB failed, filtered by user_id: %s)', len(user_plantings), user_id)
-                else:
-                    logger.info('Session has %d plantings but none match user_id: %s', len(session_plantings), user_id)
-            else:
-                # No user_id, use all session plantings (fallback for anonymous users)
+    # Start with DynamoDB plantings
+    user_plantings = dynamodb_plantings.copy() if dynamodb_plantings else []
+    
+    # Merge with session plantings for immediate display (newly saved items)
+    # This ensures newly added plantings appear immediately even if DynamoDB save is delayed
+    session_plantings = request.session.get('user_plantings', [])
+    if session_plantings:
+        # Filter session plantings by user_id to avoid cross-user data
+        if user_id:
+            filtered_session = [
+                p for p in session_plantings 
+                if p.get('user_id') == user_id or p.get('username') == username
+            ]
+            # Merge: add session items that aren't already in DynamoDB results
+            # Use planting_id to deduplicate
+            dynamodb_ids = {p.get('planting_id') for p in user_plantings if p.get('planting_id')}
+            for session_item in filtered_session:
+                session_id = session_item.get('planting_id')
+                if session_id and session_id not in dynamodb_ids:
+                    # This is a new item in session not yet in DynamoDB - add it
+                    user_plantings.append(session_item)
+                    logger.debug('Merged session planting %s (not yet in DynamoDB)', session_id)
+            
+            if filtered_session and not dynamodb_plantings:
+                logger.info('Using %d plantings from session (DynamoDB empty, filtered by user_id: %s)', len(filtered_session), user_id)
+        else:
+            # No user_id - use all session plantings (anonymous users)
+            if not user_plantings:
                 user_plantings = session_plantings
-                logger.warning('⚠️ Using %d plantings from session (DynamoDB failed, no user_id filter)', len(user_plantings))
-    elif not user_id:
-        # No user_id at all - use session for anonymous users
-        session_plantings = request.session.get('user_plantings', [])
-        if session_plantings:
+                logger.info('Using %d plantings from session (no user_id - anonymous user)', len(user_plantings))
+    
+    # If DynamoDB failed and we have session, use session
+    if dynamodb_load_failed and not user_plantings and session_plantings:
+        if user_id:
+            filtered_session = [
+                p for p in session_plantings 
+                if p.get('user_id') == user_id or p.get('username') == username
+            ]
+            if filtered_session:
+                user_plantings = filtered_session
+                logger.warning('⚠️ Using %d plantings from session (DynamoDB failed, filtered by user_id: %s)', len(user_plantings), user_id)
+        else:
             user_plantings = session_plantings
-            logger.info('Using %d plantings from session (no user_id - anonymous user)', len(user_plantings))
+            logger.warning('⚠️ Using %d plantings from session (DynamoDB failed, no user_id filter)', len(user_plantings))
+    
+    logger.info('Final plantings count: %d (DynamoDB: %d, Session merged: %d)', 
+                len(user_plantings), len(dynamodb_plantings), len(session_plantings))
 
     today = date.today()
     ongoing, upcoming, past = [], [], []
@@ -581,7 +618,10 @@ def save_planting(request):
     user_plantings.append(new_planting)
     request.session['user_plantings'] = user_plantings
     request.session.modified = True
-    logger.info('Saved planting to session: total=%d', len(user_plantings))
+    logger.info('✅ Saved planting to session: total=%d, planting_id=%s, user_id=%s, username=%s', 
+                len(user_plantings), new_planting.get('planting_id'), user_id, username)
+    logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
+                crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
 
     return redirect('index')
 
