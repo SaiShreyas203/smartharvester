@@ -739,7 +739,12 @@ def cognito_callback(request):
         logger.exception('Error saving session: %s', e)
         return HttpResponse(f"Error saving session: {str(e)}", status=500)
 
-    return redirect('/')
+    # Redirect to home page - use absolute HTTPS URL to avoid protocol/port issues
+    # Construct from COGNITO_REDIRECT_URI to ensure we use the correct base URL
+    redirect_base = settings.COGNITO_REDIRECT_URI.rsplit('/auth/callback/', 1)[0]
+    redirect_url = redirect_base + '/'
+    logger.info('Cognito callback: Redirecting to %s', redirect_url)
+    return redirect(redirect_url)
 
 def persist_cognito_user(request, id_token: str | None = None, claims: dict | None = None) -> tuple[bool, str | None]:
     """

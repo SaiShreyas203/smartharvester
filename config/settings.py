@@ -218,6 +218,16 @@ LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
 LOGIN_URL = "/auth/login/"
 
+# Force HTTPS for redirects when behind a proxy
+# If your app is behind a reverse proxy (nginx, ALB) that terminates TLS,
+# ensure X-Forwarded-Proto header is set and SECURE_PROXY_SSL_HEADER is configured above
+# For direct access, you may need to configure your web server to redirect HTTP to HTTPS
+USE_TLS = os.getenv("USE_TLS", "False").lower() == "true"
+if USE_TLS:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 # Optional: logging minimal config to surface errors during startup/runtime
 LOGGING = {
     "version": 1,
