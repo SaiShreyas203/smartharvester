@@ -253,38 +253,62 @@ def index(request):
                 logger.warning('Planting at index %d missing planting_date, skipping', i)
                 continue
 
-            # Ensure plan exists - regenerate if missing or empty
+            # Always regenerate plan using library to ensure it's up-to-date
+            crop_name = planting.get('crop_name', '')
+            planting_date_obj = planting.get('planting_date')
             plan = planting.get('plan', [])
-            if not plan or len(plan) == 0:
-                # Plan is missing or empty - regenerate it
-                crop_name = planting.get('crop_name', '')
-                planting_date_obj = planting.get('planting_date')
-                
-                if crop_name and planting_date_obj:
-                    try:
-                        # Ensure planting_date is a date object
-                        if isinstance(planting_date_obj, str):
-                            planting_date_obj = date.fromisoformat(planting_date_obj)
+            
+            # Regenerate plan using built-in calculator/library
+            if crop_name and planting_date_obj:
+                try:
+                    # Ensure planting_date is a date object
+                    if isinstance(planting_date_obj, str):
+                        planting_date_obj = date.fromisoformat(planting_date_obj)
+                    
+                    # Always regenerate plan to ensure latest data.json is used
+                    plant_data = load_plant_data()
+                    calculate = _get_calculate_plan()
+                    calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
+                    
+                    if calculated_plan and len(calculated_plan) > 0:
+                        # Convert dates to ISO strings first, then back to date objects for display
+                        for task in calculated_plan:
+                            if 'due_date' in task and isinstance(task['due_date'], date):
+                                task['due_date'] = task['due_date'].isoformat()
                         
-                        # Regenerate plan using built-in calculator
-                        plant_data = load_plant_data()
-                        calculate = _get_calculate_plan()
-                        calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
+                        planting['plan'] = calculated_plan
+                        was_empty = not plan or len(plan) == 0
+                        logger.info('✅ Regenerated plan for planting %d (crop: %s, planted: %s) - %d tasks (was empty: %s)', 
+                                  i, crop_name, planting_date_obj.isoformat(), len(calculated_plan), was_empty)
                         
-                        if calculated_plan:
-                            # Convert dates to ISO strings for storage consistency
-                            for task in calculated_plan:
-                                if 'due_date' in task and isinstance(task['due_date'], date):
-                                    task['due_date'] = task['due_date'].isoformat()
-                            
-                            planting['plan'] = calculated_plan
-                            logger.info('Regenerated plan for planting %d (crop: %s) - %d tasks', i, crop_name, len(calculated_plan))
-                            
-                            # Optionally save updated plan back to DynamoDB (async/background task)
-                            # For now, it will be saved when user updates the planting
-                    except Exception as e:
-                        logger.exception('Error regenerating plan for planting %d: %s', i, e)
-                        planting['plan'] = []
+                        # Auto-save updated plan back to DynamoDB with all required fields
+                        try:
+                            from .dynamodb_helper import save_planting_to_dynamodb
+                            planting_id = planting.get('planting_id')
+                            if not planting_id:
+                                planting_id = planting.get('id')
+                            if planting_id:
+                                updated_planting = dict(planting)
+                                updated_planting['plan'] = calculated_plan
+                                # Ensure required fields for DynamoDB save
+                                if 'user_id' not in updated_planting and user_id:
+                                    updated_planting['user_id'] = user_id
+                                if 'username' not in updated_planting and username:
+                                    updated_planting['username'] = username
+                                if 'planting_id' not in updated_planting:
+                                    updated_planting['planting_id'] = str(planting_id)
+                                
+                                saved_id = save_planting_to_dynamodb(updated_planting)
+                                if saved_id:
+                                    logger.info('✅ Auto-saved regenerated plan to DynamoDB for planting_id: %s', saved_id)
+                        except Exception as save_error:
+                            logger.warning('⚠️ Could not auto-save regenerated plan to DynamoDB: %s', save_error)
+                    else:
+                        logger.warning('Plan calculator returned empty plan for %s, keeping existing', crop_name)
+                        planting['plan'] = plan if plan else []
+                except Exception as e:
+                    logger.exception('Error regenerating plan for planting %d (crop: %s): %s', i, crop_name, e)
+                    planting['plan'] = plan if plan else []
             
             # Normalize plan due_date fields to date objects where possible for display
             for task in planting.get('plan', []):
@@ -297,18 +321,61 @@ def index(request):
                         task['due_date'] = None
 
             # Determine harvest_date from last task that has due_date
-            harvest_task = next((t for t in reversed(planting.get('plan', [])) if t.get('due_date')), None)
+            plan_list = planting.get('plan', [])
+            harvest_task = None
+            
+            # Find the last task with a valid due_date
+            if plan_list:
+                for task in reversed(plan_list):
+                    due_date_val = task.get('due_date')
+                    if due_date_val:
+                        # Ensure it's a date object
+                        if isinstance(due_date_val, str):
+                            try:
+                                due_date_val = date.fromisoformat(due_date_val)
+                            except (ValueError, TypeError):
+                                continue
+                        if isinstance(due_date_val, date):
+                            harvest_task = task
+                            break
+            
             if harvest_task and harvest_task.get('due_date'):
                 harvest_date = harvest_task['due_date']
-                planting['harvest_date'] = harvest_date
-                if harvest_date < today:
-                    past.append(planting)
-                elif (harvest_date - today).days <= 7:
-                    upcoming.append(planting)
+                # Ensure harvest_date is a date object
+                if isinstance(harvest_date, str):
+                    try:
+                        harvest_date = date.fromisoformat(harvest_date)
+                    except (ValueError, TypeError):
+                        harvest_date = None
+                
+                if harvest_date:
+                    planting['harvest_date'] = harvest_date
+                    days_until_harvest = (harvest_date - today).days
+                    
+                    # Categorize: past (already harvested), upcoming (within 7 days), ongoing (more than 7 days away)
+                    if days_until_harvest < 0:
+                        # Harvest date is in the past
+                        past.append(planting)
+                        logger.info('📅 Planting %d (crop: %s) categorized as PAST - harvest_date: %s (was %d days ago, today: %s)', 
+                                   i, crop_name, harvest_date.isoformat(), abs(days_until_harvest), today.isoformat())
+                    elif days_until_harvest <= 7:
+                        # Harvest date is within 7 days
+                        upcoming.append(planting)
+                        logger.info('📅 Planting %d (crop: %s) categorized as UPCOMING - harvest_date: %s (in %d days, today: %s)', 
+                                   i, crop_name, harvest_date.isoformat(), days_until_harvest, today.isoformat())
+                    else:
+                        # Harvest date is more than 7 days away
+                        ongoing.append(planting)
+                        logger.info('📅 Planting %d (crop: %s) categorized as ONGOING - harvest_date: %s (in %d days, today: %s)', 
+                                   i, crop_name, harvest_date.isoformat(), days_until_harvest, today.isoformat())
                 else:
+                    # Invalid harvest_date - treat as ongoing
                     ongoing.append(planting)
+                    logger.warning('Planting %d has invalid harvest_date format, categorizing as ONGOING', i)
             else:
+                # No harvest_date - treat as ongoing
                 ongoing.append(planting)
+                logger.debug('Planting %d has no harvest_date, categorizing as ONGOING', i)
         except Exception as e:
             logger.exception('Error processing planting at index %d: %s', i, e)
             continue
