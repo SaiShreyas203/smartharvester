@@ -191,15 +191,19 @@
                     <div class="card-steps" style="display:none;">
                         {% if planting.plan %}
                             {% for task_item in planting.plan %}
-                            <li>
-                                {{ task_item.task }}
+                            <li style="margin: 8px 0; padding: 4px 0;">
+                                <strong>{{ task_item.task|default:"Task" }}</strong>
                                 {% if task_item.due_date %}
-                                    ({{ task_item.due_date|date:"M d" }})
+                                    <span style="color: #5cb85c; margin-left: 8px;">
+                                        ({{ task_item.due_date|date:"M d" }})
+                                    </span>
                                 {% endif %}
                             </li>
+                            {% empty %}
+                                <li><em>No steps available.</em></li>
                             {% endfor %}
                         {% else %}
-                            <li>No steps available.</li>
+                            <li><em>No steps available.</em></li>
                         {% endif %}
                     </div>
                 </div>
@@ -466,11 +470,32 @@
                 card.addEventListener('click', () => {
                     const title = card.querySelector('h3') ? card.querySelector('h3').textContent : 'Details';
                     const notesDiv = card.querySelector('.card-notes');
-                    const stepsHTML = card.querySelector('.card-steps') ? card.querySelector('.card-steps').innerHTML : '';
+                    const stepsDiv = card.querySelector('.card-steps');
+                    
+                    // Get steps HTML - check if steps div exists and has content
+                    let stepsHTML = '';
+                    if (stepsDiv) {
+                        stepsHTML = stepsDiv.innerHTML.trim();
+                        console.log('📋 Steps HTML for', title, ':', stepsHTML.length, 'chars');
+                        if (stepsHTML.length > 0 && !stepsHTML.includes('No steps available')) {
+                            console.log('✅ Found steps:', stepsHTML.substring(0, 150));
+                        } else {
+                            console.log('⚠️ No steps found or empty');
+                        }
+                    } else {
+                        console.log('❌ Steps div not found for', title);
+                    }
+                    
+                    // If no steps HTML or only contains "No steps available"
+                    if (!stepsHTML || stepsHTML.length === 0 || stepsHTML.trim() === '<li><em>No steps available.</em></li>') {
+                        stepsHTML = '<li><em>No steps available.</em></li>';
+                        console.log('⚠️ Using default "No steps available" message');
+                    }
 
                     modalTitle.textContent = title;
                     modalNotes.innerHTML = notesDiv ? notesDiv.innerHTML : '<p>No notes available.</p>';
-                    modalStepsList.innerHTML = stepsHTML || '<li>No steps available.</li>';
+                    modalStepsList.innerHTML = stepsHTML;
+                    console.log('📝 Modal steps list set to:', modalStepsList.innerHTML.substring(0, 150));
 
                     modal.style.display = 'flex';
                     modal.setAttribute('aria-hidden', 'false');

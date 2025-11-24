@@ -314,12 +314,13 @@ def index(request):
                 logger.warning('Planting at index %d missing planting_date, skipping', i)
                 continue
 
-            # Always regenerate plan using library to ensure it's up-to-date
+            # ALWAYS regenerate plan using library to ensure it's up-to-date
+            # This ensures all plants show steps like the user requested
             crop_name_raw = planting.get('crop_name', '').strip()
             planting_date_obj = planting.get('planting_date')
-            plan = planting.get('plan', [])
+            plan = planting.get('plan', [])  # Keep old plan as fallback
             
-            # Regenerate plan using built-in calculator/library
+            # Regenerate plan for ALL plantings - don't skip if plan exists
             if crop_name_raw and planting_date_obj:
                 try:
                     # Ensure planting_date is a date object
@@ -343,22 +344,39 @@ def index(request):
                     
                     # Verify plant exists in data.json before calculating
                     if isinstance(plant_data, dict) and crop_name in plant_data:
-                        logger.debug('✅ Crop "%s" found in data.json', crop_name)
+                        plant_info = plant_data[crop_name]
+                        care_schedule = plant_info.get('care_schedule', [])
+                        logger.info('✅ Crop "%s" found in data.json with %d care schedule items', crop_name, len(care_schedule))
                     else:
                         logger.error('❌ Crop "%s" NOT found in data.json. Available plants: %s', 
-                                   crop_name, list(plant_data.keys())[:10] if isinstance(plant_data, dict) else 'N/A')
+                                   crop_name, list(plant_data.keys())[:12] if isinstance(plant_data, dict) else 'N/A')
+                        # Try to continue anyway - normalization might still work
                     
                     calculate = _get_calculate_plan()
                     calculated_plan = calculate(crop_name, planting_date_obj, plant_data)
                     
+                    # Log plan generation result
+                    if calculated_plan:
+                        logger.info('✅ Plan calculator returned %d tasks for "%s"', len(calculated_plan), crop_name)
+                        for idx, task in enumerate(calculated_plan):
+                            logger.debug('  Task %d: %s (due: %s)', idx+1, task.get('task'), task.get('due_date'))
+                    else:
+                        logger.warning('⚠️ Plan calculator returned empty list for "%s"', crop_name)
+                    
                     if calculated_plan and len(calculated_plan) > 0:
                         logger.info('✅ Generated %d tasks for "%s"', len(calculated_plan), crop_name)
-                        # Convert dates to ISO strings first, then back to date objects for display
+                        # Keep dates as date objects for template rendering (don't convert to ISO strings here)
+                        # The template needs date objects for the date filter to work
+                        # Ensure all dates are date objects (not strings) for template rendering
                         for task in calculated_plan:
-                            if 'due_date' in task and isinstance(task['due_date'], date):
-                                task['due_date'] = task['due_date'].isoformat()
-                        
+                            if 'due_date' in task and isinstance(task['due_date'], str):
+                                try:
+                                    task['due_date'] = date.fromisoformat(task['due_date'])
+                                except (ValueError, TypeError):
+                                    logger.warning('Could not parse due_date string: %s', task.get('due_date'))
+                                    task['due_date'] = None
                         planting['plan'] = calculated_plan
+                        logger.debug('✅ Set plan with %d tasks for planting %d (crop: %s)', len(calculated_plan), i, crop_name)
                         was_empty = not plan or len(plan) == 0
                         logger.info('✅ Regenerated plan for planting %d (crop: %s, planted: %s) - %d tasks (was empty: %s)', 
                                   i, crop_name, planting_date_obj.isoformat(), len(calculated_plan), was_empty)
@@ -371,7 +389,15 @@ def index(request):
                                 planting_id = planting.get('id')
                             if planting_id:
                                 updated_planting = dict(planting)
-                                updated_planting['plan'] = calculated_plan
+                                # For DynamoDB save, convert dates to ISO strings
+                                plan_for_db = []
+                                for task in calculated_plan:
+                                    task_copy = dict(task)
+                                    if 'due_date' in task_copy and isinstance(task_copy['due_date'], date):
+                                        task_copy['due_date'] = task_copy['due_date'].isoformat()
+                                    plan_for_db.append(task_copy)
+                                
+                                updated_planting['plan'] = plan_for_db
                                 updated_planting['crop_name'] = crop_name  # Ensure normalized name is saved
                                 # Ensure required fields for DynamoDB save
                                 if 'user_id' not in updated_planting and user_id:
@@ -403,14 +429,26 @@ def index(request):
                 planting['plan'] = plan if plan else []
             
             # Normalize plan due_date fields to date objects where possible for display
-            for task in planting.get('plan', []):
-                if 'due_date' in task and task['due_date']:
-                    try:
-                        if isinstance(task['due_date'], str):
-                            task['due_date'] = date.fromisoformat(task['due_date'])
-                    except (ValueError, TypeError) as e:
-                        logger.warning('Error parsing due_date in planting %d: %s', i, e)
-                        task['due_date'] = None
+            # This ensures the template can use Django's date filter
+            plan_list = planting.get('plan', [])
+            if plan_list:
+                logger.debug('Normalizing %d plan tasks for planting %d (crop: %s)', len(plan_list), i, planting.get('crop_name'))
+                for task_idx, task in enumerate(plan_list):
+                    if 'due_date' in task and task['due_date']:
+                        try:
+                            if isinstance(task['due_date'], str):
+                                task['due_date'] = date.fromisoformat(task['due_date'])
+                                logger.debug('  Task %d: Converted ISO string to date: %s', task_idx, task['due_date'])
+                            elif isinstance(task['due_date'], date):
+                                logger.debug('  Task %d: Already a date object: %s', task_idx, task['due_date'])
+                            else:
+                                logger.warning('  Task %d: Unexpected due_date type: %s', task_idx, type(task['due_date']))
+                        except (ValueError, TypeError) as e:
+                            logger.warning('Error parsing due_date in planting %d, task %d: %s - due_date value: %s', i, task_idx, e, task.get('due_date'))
+                            task['due_date'] = None
+                planting['plan'] = plan_list
+            else:
+                logger.warning('⚠️ Planting %d (crop: %s) has no plan or empty plan', i, planting.get('crop_name'))
 
             # Determine harvest_date from last task that has due_date
             plan_list = planting.get('plan', [])
@@ -556,6 +594,11 @@ def index(request):
         user_id=user_id
     )
 
+    # Log summary of plans generated
+    total_plantings = len(ongoing) + len(upcoming) + len(past)
+    plantings_with_plans = sum(1 for p in ongoing + upcoming + past if p.get('plan') and len(p.get('plan', [])) > 0)
+    logger.info('📊 Index view summary: %d total plantings, %d with plans generated', total_plantings, plantings_with_plans)
+    
     context = {
         'ongoing': ongoing,
         'upcoming': upcoming,
