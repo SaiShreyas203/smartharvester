@@ -337,9 +337,14 @@ def add_planting_view(request):
     # Require authentication - redirect to Cognito login if no user found
     if not is_authenticated:
         logger.warning('add_planting_view: No authenticated user found, redirecting to Cognito login')
+        logger.debug('add_planting_view: Session keys: %s', list(request.session.keys()))
+        logger.debug('add_planting_view: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
+        if hasattr(request, 'cognito_user_id'):
+            logger.debug('add_planting_view: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
         # Redirect to Cognito login instead of Django login
         return redirect('cognito_login')
     
+    logger.info('add_planting_view: User authenticated (user_id=%s), rendering add planting form', user_id)
     plant_data = load_plant_data()
     context = {
         'plant_names': [p['name'] for p in plant_data['plants']],
