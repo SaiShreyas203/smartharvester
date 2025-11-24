@@ -103,24 +103,33 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 # --- DATABASE SETTINGS ---
 if IS_PRODUCTION:
-    # In production we expect DATABASE_URL env var to be set and dj_database_url to parse it
-    DATABASES = {"default": dj_database_url.config(conn_max_age=600)}
-else:
-    # Ensure HOST is set to avoid Unix socket connection attempts in local dev
-    db_host = os.getenv("DATABASE_HOST")
-    if not db_host or db_host.strip() == "":
-        db_host = "localhost"
-
     DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DATABASE_NAME", ""),
-            "USER": os.getenv("DATABASE_USER", ""),
-            "PASSWORD": os.getenv("DATABASE_PASSWORD", ""),
-            "HOST": db_host,
-            "PORT": os.getenv("DATABASE_PORT", "5432"),
-        }
+        'default': dj_database_url.config(conn_max_age=600)
     }
+else:
+    # If DATABASE_NAME env var is supplied, use Postgres settings (development with a Postgres host).
+    db_name = os.getenv("DATABASE_NAME", "").strip()
+    if db_name:
+        db_host = os.getenv("DATABASE_HOST") or "localhost"
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": db_name,
+                "USER": os.getenv("DATABASE_USER", ""),
+                "PASSWORD": os.getenv("DATABASE_PASSWORD", ""),
+                "HOST": db_host,
+                "PORT": os.getenv("DATABASE_PORT", "5432"),
+            }
+        }
+    else:
+        # Fallback to a lightweight sqlite DB for local development to satisfy Django admin/auth.
+        # This keeps your app using DynamoDB for app data while allowing Django's contrib apps to work.
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": BASE_DIR / "db.sqlite3",
+            }
+        }
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
