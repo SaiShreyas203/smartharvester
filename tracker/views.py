@@ -111,18 +111,42 @@ def index(request):
 
     logger.info('Index: user_id = %s, email = %s, name = %s', user_id if user_id else 'None', user_email, user_name)
 
-    # Try to load from DynamoDB first if user_id exists
+    # ALWAYS load from DynamoDB first if user_id exists (permanent storage)
+    # Only use session as fallback if DynamoDB query fails (exception), not if it returns empty
+    dynamodb_load_failed = False
     if user_id and load_user_plantings:
         try:
             dynamodb_plantings = load_user_plantings(user_id)
+            # Convert DynamoDB types (Decimal, etc.) to Python types
             if dynamodb_plantings:
-                user_plantings = dynamodb_plantings
-                logger.info('Loaded %d plantings from DynamoDB for user_id: %s', len(user_plantings), user_id)
+                from decimal import Decimal
+                def convert_dynamo_types(obj):
+                    """Convert DynamoDB types to Python types."""
+                    if isinstance(obj, Decimal):
+                        # Convert Decimal to float or int
+                        if obj % 1 == 0:
+                            return int(obj)
+                        return float(obj)
+                    elif isinstance(obj, dict):
+                        return {k: convert_dynamo_types(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_dynamo_types(item) for item in obj]
+                    return obj
+                
+                user_plantings = [convert_dynamo_types(p) for p in dynamodb_plantings]
+                logger.info('✅ Loaded %d plantings from DynamoDB for user_id: %s (permanent storage)', len(user_plantings), user_id)
+            else:
+                # DynamoDB returned empty list - user has no plantings yet
+                user_plantings = []
+                logger.info('DynamoDB returned empty list for user_id: %s (no plantings saved yet)', user_id)
         except Exception as e:
-            logger.exception('Error loading from DynamoDB: %s', e)
+            logger.exception('❌ Error loading from DynamoDB: %s - will try session fallback', e)
+            dynamodb_load_failed = True
+            user_plantings = []
 
-    # If no DynamoDB data, use session (but filter by user_id if available)
-    if not user_plantings:
+    # Only use session as fallback if DynamoDB query failed (exception)
+    # If DynamoDB returned empty list, that's correct - user has no plantings
+    if dynamodb_load_failed and not user_plantings:
         session_plantings = request.session.get('user_plantings', [])
         if session_plantings:
             # Filter session plantings by user_id if we have one (to avoid cross-user data)
@@ -133,23 +157,41 @@ def index(request):
                 ]
                 if filtered_session:
                     user_plantings = filtered_session
-                    logger.info('Using %d plantings from session (filtered by user_id: %s)', len(user_plantings), user_id)
+                    logger.warning('⚠️ Using %d plantings from session (DynamoDB failed, filtered by user_id: %s)', len(user_plantings), user_id)
                 else:
                     logger.info('Session has %d plantings but none match user_id: %s', len(session_plantings), user_id)
             else:
                 # No user_id, use all session plantings (fallback for anonymous users)
                 user_plantings = session_plantings
-                logger.info('Using %d plantings from session (no user_id filter)', len(user_plantings))
+                logger.warning('⚠️ Using %d plantings from session (DynamoDB failed, no user_id filter)', len(user_plantings))
+    elif not user_id:
+        # No user_id at all - use session for anonymous users
+        session_plantings = request.session.get('user_plantings', [])
+        if session_plantings:
+            user_plantings = session_plantings
+            logger.info('Using %d plantings from session (no user_id - anonymous user)', len(user_plantings))
 
     today = date.today()
     ongoing, upcoming, past = [], [], []
 
     # Process plantings - robust parsing for dates and image_url
+    # Ensure all fields from DynamoDB are properly extracted, especially image_url
     for i, planting_data in enumerate(user_plantings):
         try:
             planting = dict(planting_data)  # copy
             planting['id'] = i
-            planting['image_url'] = planting.get('image_url') or planting_data.get('image_url', '') or ''
+            
+            # Extract image_url - prioritize direct field, then nested access
+            # DynamoDB stores it as 'image_url' directly
+            planting['image_url'] = (
+                planting.get('image_url') or 
+                planting_data.get('image_url') or 
+                ''
+            )
+            
+            # Log if image_url exists for debugging
+            if planting.get('image_url'):
+                logger.debug('Planting %d has image_url: %s', i, planting.get('image_url'))
 
             # planting_date must be parsed (ISO string expected)
             if 'planting_date' in planting:
@@ -388,7 +430,7 @@ def save_planting(request):
 
     logger = logging.getLogger(__name__)
 
-    # First check for Cognito user (from middleware) - same logic as index view
+    # First check for Cognito user (from middleware) - same logic as index view and persist_cognito_user
     user_id = None
     username = None
     
@@ -397,7 +439,13 @@ def save_planting(request):
         user_id = request.cognito_user_id
         if hasattr(request, 'cognito_payload') and request.cognito_payload:
             payload = request.cognito_payload
-            username = payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email')
+            # Use same username extraction logic as persist_cognito_user to ensure consistency
+            username = (
+                payload.get('cognito:username') or
+                payload.get('preferred_username') or
+                payload.get('username') or
+                payload.get('email')
+            )
         logger.info('save_planting: Using Cognito user_id from middleware: %s, username: %s', user_id, username)
     else:
         # Try helper functions
@@ -406,10 +454,35 @@ def save_planting(request):
             user_id = get_user_id_from_token(request)
             user_data = get_user_data_from_token(request)
             if user_data:
-                username = user_data.get('username') or user_data.get('preferred_username') or user_data.get('email')
+                # Use same username extraction logic as persist_cognito_user
+                username = (
+                    user_data.get('cognito:username') or
+                    user_data.get('preferred_username') or
+                    user_data.get('username') or
+                    user_data.get('email')
+                )
             logger.info('save_planting: Using user_id from helper: %s, username: %s', user_id, username)
         except Exception:
             logger.exception("Error extracting user identity from helpers")
+        
+        # If still no username, try to get from session token directly
+        if not username:
+            try:
+                id_token = request.session.get('id_token')
+                if id_token:
+                    import jwt as pyjwt
+                    decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                    username = (
+                        decoded.get('cognito:username') or
+                        decoded.get('preferred_username') or
+                        decoded.get('username') or
+                        decoded.get('email')
+                    )
+                    if not user_id:
+                        user_id = decoded.get('sub')
+                    logger.info('save_planting: Extracted from session token - user_id: %s, username: %s', user_id, username)
+            except Exception:
+                logger.debug("Could not extract username from session token")
 
     # Fallback to Django auth details if available
     if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
@@ -459,7 +532,19 @@ def save_planting(request):
         if 'due_date' in task and isinstance(task['due_date'], _date):
             task['due_date'] = task['due_date'].isoformat()
 
-    # Compose planting dict; include both identifiers
+    # Ensure we have both user_id and username before saving
+    # This is critical for proper association in DynamoDB
+    if not user_id:
+        logger.error('save_planting: No user_id found - cannot save planting without user association')
+        return redirect('index')
+    
+    if not username:
+        # Fallback: use user_id as username if no username found
+        # This ensures the planting can still be saved
+        username = user_id
+        logger.warning('save_planting: No username found, using user_id as username: %s', username)
+    
+    # Compose planting dict; include both identifiers (required for DynamoDB queries)
     new_planting = {
         'crop_name': crop_name,
         'planting_date': planting_date.isoformat(),
@@ -467,24 +552,29 @@ def save_planting(request):
         'notes': notes,
         'plan': calculated_plan,
         'image_url': image_url,
-        'user_id': user_id or (f"django_{getattr(request.user, 'pk', '')}" if getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False) else None),
-        'username': username or (getattr(request.user, 'username', None) if getattr(request, 'user', None) else None),
+        'user_id': user_id,  # Cognito sub or django_<pk>
+        'username': username,  # Username from Cognito or Django
     }
+    
+    logger.info('save_planting: Saving planting with user_id=%s, username=%s', user_id, username)
 
     # Ensure a planting_id for session immediacy
     local_planting_id = str(uuid.uuid4())
     new_planting['planting_id'] = new_planting.get('planting_id') or local_planting_id
 
-    # Persist to Dynamo (best-effort). save_planting_to_dynamodb should return planting_id
+    # Persist to DynamoDB - this is critical for permanent storage
+    # The planting will be associated with the logged-in user via user_id and username
     try:
         returned_id = save_planting_to_dynamodb(new_planting)
         if returned_id:
             new_planting['planting_id'] = returned_id
-            logger.info('Saved planting %s to DynamoDB', returned_id)
+            logger.info('✅ Saved planting %s to DynamoDB for user_id=%s, username=%s', returned_id, user_id, username)
         else:
-            logger.warning('save_planting_to_dynamodb returned falsy; using local id %s', local_planting_id)
-    except Exception:
-        logger.exception('Failed to save planting to DynamoDB; continuing with session-only')
+            logger.error('❌ save_planting_to_dynamodb returned falsy - planting NOT saved to DynamoDB! user_id=%s, username=%s', user_id, username)
+            logger.warning('Using local id %s for session only', local_planting_id)
+    except Exception as e:
+        logger.exception('❌ Failed to save planting to DynamoDB: %s - continuing with session-only', e)
+        logger.error('Planting will be lost if session expires! user_id=%s, username=%s', user_id, username)
 
     # Always save to session so it appears immediately
     user_plantings = request.session.get('user_plantings', [])
