@@ -24,21 +24,18 @@ def _fetch_jwks():
     if JWKS_CACHE['keys'] and now - JWKS_CACHE['fetched_at'] < JWKS_TTL:
         return JWKS_CACHE['keys']
     
-    # Try to get USER_POOL_ID from settings, but it's optional for token verification
-    # We can verify tokens using the domain's JWKS endpoint instead
+    # JWKS endpoint must use the user pool endpoint, not the domain endpoint
+    # The domain endpoint doesn't have JWKS - only the user pool endpoint does
     user_pool_id = getattr(settings, 'COGNITO_USER_POOL_ID', None)
     cognito_region = getattr(settings, 'COGNITO_REGION', 'us-east-1')
     
     if user_pool_id:
-        # Use user pool specific JWKS endpoint
+        # Use user pool specific JWKS endpoint (this is the correct endpoint)
         jwks_url = f"https://cognito-idp.{cognito_region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
     else:
-        # Fallback: use domain-based JWKS endpoint (works if COGNITO_DOMAIN is set)
-        cognito_domain = getattr(settings, 'COGNITO_DOMAIN', None)
-        if cognito_domain:
-            jwks_url = f"https://{cognito_domain}/.well-known/jwks.json"
-        else:
-            raise ValueError("Either COGNITO_USER_POOL_ID or COGNITO_DOMAIN must be set for token verification")
+        # If no USER_POOL_ID, we can't verify tokens properly
+        # Try to extract from token's 'iss' claim as last resort
+        raise ValueError("COGNITO_USER_POOL_ID is required for token verification. Domain-based JWKS endpoint is not available.")
     
     # import requests lazily so missing deps won't crash Django at import time
     import requests

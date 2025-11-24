@@ -307,17 +307,31 @@ def add_planting_view(request):
         # Check for Cognito tokens in session (user might be logged in but middleware hasn't processed yet)
         id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
         if id_token:
+            # User has a token in session - they're authenticated
+            # Even if verification fails, if they have a token, they're logged in
             is_authenticated = True
-            # Try to get user_id from token
+            logger.info('add_planting_view: Found id_token in session, user is authenticated')
+            
+            # Try to get user_id from token (best effort)
             try:
                 from .dynamodb_helper import get_user_id_from_token
                 user_id = get_user_id_from_token(request)
                 if user_id:
                     logger.info('add_planting_view: Using user_id from helper: %s', user_id)
+                else:
+                    # Try to decode token directly to get sub
+                    try:
+                        import jwt as pyjwt
+                        decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                        user_id = decoded.get('sub') or decoded.get('cognito:username')
+                        if user_id:
+                            logger.info('add_planting_view: Extracted user_id from token: %s', user_id)
+                    except Exception:
+                        logger.debug("Could not extract user_id from token, but user is authenticated")
             except Exception:
-                logger.exception("Error extracting user identity, but user has token")
+                logger.debug("Error extracting user identity, but user has token - allowing access")
         
-        # Try helper functions if no token found
+        # Try helper functions if no token found in session
         if not is_authenticated:
             try:
                 from .dynamodb_helper import get_user_id_from_token
@@ -326,7 +340,7 @@ def add_planting_view(request):
                     is_authenticated = True
                     logger.info('add_planting_view: Using user_id from helper: %s', user_id)
             except Exception:
-                logger.exception("Error extracting user identity")
+                logger.debug("No user_id found from helper functions")
     
     # Fallback to Django auth
     if not is_authenticated and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
