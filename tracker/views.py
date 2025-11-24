@@ -755,96 +755,116 @@ def save_planting(request):
      - persist planting to DynamoDB (including username and user_id)
      - always save to session for immediate UI
     """
-    if request.method != 'POST':
-        return redirect('index')
-
-    from datetime import date as _date
-    import uuid
     import logging
-
     logger = logging.getLogger(__name__)
-
-    # First check for Cognito user (from middleware) - same logic as index view and persist_cognito_user
-    user_id = None
-    username = None
     
-    # Check for Cognito user first (from middleware - fastest path)
-    if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
-        user_id = request.cognito_user_id
-        if hasattr(request, 'cognito_payload') and request.cognito_payload:
-            payload = request.cognito_payload
-            # Use same username extraction logic as persist_cognito_user to ensure consistency
-            username = (
-                payload.get('cognito:username') or
-                payload.get('preferred_username') or
-                payload.get('username') or
-                payload.get('email')
-            )
-        logger.info('save_planting: Using Cognito user_id from middleware: %s, username: %s', user_id, username)
-    else:
-        # Try helper functions
-        try:
-            from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token
-            user_id = get_user_id_from_token(request)
-            user_data = get_user_data_from_token(request)
-            if user_data:
-                # Use same username extraction logic as persist_cognito_user
-                username = (
-                    user_data.get('cognito:username') or
-                    user_data.get('preferred_username') or
-                    user_data.get('username') or
-                    user_data.get('email')
-                )
-            logger.info('save_planting: Using user_id from helper: %s, username: %s', user_id, username)
-        except Exception:
-            logger.exception("Error extracting user identity from helpers")
+    # Wrap entire function body to ensure it always returns a response
+    try:
+        if request.method != 'POST':
+            return redirect('index')
+
+        from datetime import date as _date
+        import uuid
+
+        # First check for Cognito user (from middleware) - same logic as index view and persist_cognito_user
+        user_id = None
+        username = None
         
-        # If still no username, try to get from session token directly
-        if not username:
+        # Check for Cognito user first (from middleware - fastest path)
+        if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
+            user_id = request.cognito_user_id
+            if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                payload = request.cognito_payload
+                # Use same username extraction logic as persist_cognito_user to ensure consistency
+                username = (
+                    payload.get('cognito:username') or
+                    payload.get('preferred_username') or
+                    payload.get('username') or
+                    payload.get('email')
+                )
+            logger.info('save_planting: Using Cognito user_id from middleware: %s, username: %s', user_id, username)
+        else:
+            # Try helper functions
             try:
-                id_token = request.session.get('id_token')
-                if id_token:
+                from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token
+                user_id = get_user_id_from_token(request)
+                user_data = get_user_data_from_token(request)
+                if user_data:
+                    # Use same username extraction logic as persist_cognito_user
+                    username = (
+                        user_data.get('cognito:username') or
+                        user_data.get('preferred_username') or
+                        user_data.get('username') or
+                        user_data.get('email')
+                    )
+                logger.info('save_planting: Using user_id from helper: %s, username: %s', user_id, username)
+            except Exception:
+                logger.exception("Error extracting user identity from helpers")
+            
+            # If still no username, try to get from session token directly
+            if not username:
+                try:
+                    id_token = request.session.get('id_token')
+                    if id_token:
+                        import jwt as pyjwt
+                        decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                        username = (
+                            decoded.get('cognito:username') or
+                            decoded.get('preferred_username') or
+                            decoded.get('username') or
+                            decoded.get('email')
+                        )
+                        if not user_id:
+                            user_id = decoded.get('sub')
+                        logger.info('save_planting: Extracted from session token - user_id: %s, username: %s', user_id, username)
+                except Exception:
+                    logger.debug("Could not extract username from session token")
+
+        # Fallback to Django auth details if available
+        if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+            username = getattr(request.user, 'username', None)
+            user_id = f"django_{getattr(request.user, 'pk', '')}"
+            logger.info('save_planting: Using Django user_id: %s, username: %s', user_id, username)
+
+        # Require authentication - redirect to login if no user found
+        if not user_id:
+            # Final check: if there's a token in session, try to extract user_id from it
+            id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+            if id_token:
+                try:
                     import jwt as pyjwt
                     decoded = pyjwt.decode(id_token, options={"verify_signature": False})
-                    username = (
-                        decoded.get('cognito:username') or
-                        decoded.get('preferred_username') or
-                        decoded.get('username') or
-                        decoded.get('email')
-                    )
-                    if not user_id:
-                        user_id = decoded.get('sub')
-                    logger.info('save_planting: Extracted from session token - user_id: %s, username: %s', user_id, username)
-            except Exception:
-                logger.debug("Could not extract username from session token")
-
-    # Fallback to Django auth details if available
-    if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-        username = getattr(request.user, 'username', None)
-        user_id = f"django_{getattr(request.user, 'pk', '')}"
-        logger.info('save_planting: Using Django user_id: %s, username: %s', user_id, username)
-
-    # Require authentication - redirect to login if no user found
-    if not user_id:
-        # Final check: if there's a token in session, try to extract user_id from it
-        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
-        if id_token:
-            try:
-                import jwt as pyjwt
-                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
-                user_id = decoded.get('sub')
-                if not username:
-                    username = (
-                        decoded.get('cognito:username') or
-                        decoded.get('preferred_username') or
-                        decoded.get('username') or
-                        decoded.get('email')
-                    )
-                logger.info('save_planting: Extracted user_id from session token: %s, username: %s', user_id, username)
-            except Exception as e:
-                logger.warning('save_planting: Cannot extract user_id from token: %s', e)
-                logger.warning('save_planting: Session has token but extraction failed - redirecting to login')
+                    user_id = decoded.get('sub')
+                    if not username:
+                        username = (
+                            decoded.get('cognito:username') or
+                            decoded.get('preferred_username') or
+                            decoded.get('username') or
+                            decoded.get('email')
+                        )
+                    logger.info('save_planting: Extracted user_id from session token: %s, username: %s', user_id, username)
+                except Exception as e:
+                    logger.warning('save_planting: Cannot extract user_id from token: %s', e)
+                    logger.warning('save_planting: Session has token but extraction failed - redirecting to login')
+                    logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
+                    # Save next_url so user returns here after login
+                    try:
+                        request.session['next_url'] = '/add/'
+                        request.session.modified = True
+                    except Exception as session_error:
+                        logger.exception('Error saving session before redirect: %s', session_error)
+                    try:
+                        return redirect('cognito_login')
+                    except Exception as redirect_err:
+                        logger.exception('Error during redirect to cognito_login: %s', redirect_err)
+                        from django.http import HttpResponse
+                        return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
+            else:
+                logger.warning('save_planting: No authenticated user found - no token in session')
                 logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
+                logger.debug('save_planting: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
+                if hasattr(request, 'cognito_user_id'):
+                    logger.debug('save_planting: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
                 # Save next_url so user returns here after login
                 try:
                     request.session['next_url'] = '/add/'
@@ -857,268 +877,254 @@ def save_planting(request):
                     logger.exception('Error during redirect to cognito_login: %s', redirect_err)
                     from django.http import HttpResponse
                     return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
-        else:
-            logger.warning('save_planting: No authenticated user found - no token in session')
-            logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
-            logger.debug('save_planting: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
-            if hasattr(request, 'cognito_user_id'):
-                logger.debug('save_planting: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
-            # Save next_url so user returns here after login
+
+            crop_name_raw = request.POST.get('crop_name')
+        planting_date_str = request.POST.get('planting_date')
+        # fixed quoting for strftime
+        batch_id = request.POST.get('batch_id', f"batch-{_date.today().strftime('%Y%m%d')}")
+        notes = request.POST.get('notes', '')
+
+        # Lazy helpers
+        from .dynamodb_helper import save_planting_to_dynamodb
+        from .s3_helper import upload_planting_image
+
+        # Image upload -> returns public URL if s3_helper uses public-read, otherwise presigned URL
+        image_url = ""
+        if 'image' in request.FILES and request.FILES['image'].name:
             try:
-                request.session['next_url'] = '/add/'
-                request.session.modified = True
-            except Exception as session_error:
-                logger.exception('Error saving session before redirect: %s', session_error)
-            try:
-                return redirect('cognito_login')
-            except Exception as redirect_err:
-                logger.exception('Error during redirect to cognito_login: %s', redirect_err)
-                from django.http import HttpResponse
-                return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
+                upload_owner = user_id or username or "anonymous"
+                image_url = upload_planting_image(request.FILES['image'], upload_owner)
+                logger.info("upload_planting_image returned: %s", image_url)
+            except Exception:
+                logger.exception("Image upload failed")
 
-    crop_name_raw = request.POST.get('crop_name')
-    planting_date_str = request.POST.get('planting_date')
-    # fixed quoting for strftime
-    batch_id = request.POST.get('batch_id', f"batch-{_date.today().strftime('%Y%m%d')}")
-    notes = request.POST.get('notes', '')
+        # Validate required fields
+        if not crop_name_raw or not planting_date_str:
+            logger.error("Missing required fields in save_planting: crop_name=%s, planting_date_str=%s", crop_name_raw, planting_date_str)
+            # Return a proper error response instead of redirect to avoid 502
+            from django.http import HttpResponseBadRequest
+            return HttpResponseBadRequest("Missing required fields: crop_name and planting_date are required")
 
-    # Lazy helpers
-    from .dynamodb_helper import save_planting_to_dynamodb
-    from .s3_helper import upload_planting_image
-
-    # Image upload -> returns public URL if s3_helper uses public-read, otherwise presigned URL
-    image_url = ""
-    if 'image' in request.FILES and request.FILES['image'].name:
+        # Parse planting date with error handling
         try:
-            upload_owner = user_id or username or "anonymous"
-            image_url = upload_planting_image(request.FILES['image'], upload_owner)
-            logger.info("upload_planting_image returned: %s", image_url)
-        except Exception:
-            logger.exception("Image upload failed")
+            planting_date = _date.fromisoformat(planting_date_str)
+        except (ValueError, AttributeError) as e:
+            logger.error("Invalid planting_date format in save_planting: %s - %s", planting_date_str, e)
+            from django.http import HttpResponseBadRequest
+            return HttpResponseBadRequest(f"Invalid planting_date format: {planting_date_str}")
 
-    # Validate required fields
-    if not crop_name_raw or not planting_date_str:
-        logger.error("Missing required fields in save_planting: crop_name=%s, planting_date_str=%s", crop_name_raw, planting_date_str)
-        # Return a proper error response instead of redirect to avoid 502
-        from django.http import HttpResponseBadRequest
-        return HttpResponseBadRequest("Missing required fields: crop_name and planting_date are required")
+        # Normalize crop_name to match exact key in data.json
+        plant_data = load_plant_data()
+        crop_name = normalize_crop_name(crop_name_raw, plant_data)
+        if crop_name != crop_name_raw:
+            logger.info('Normalized crop_name for save: "%s" -> "%s"', crop_name_raw, crop_name)
 
-    # Parse planting date with error handling
-    try:
-        planting_date = _date.fromisoformat(planting_date_str)
-    except (ValueError, AttributeError) as e:
-        logger.error("Invalid planting_date format in save_planting: %s - %s", planting_date_str, e)
-        from django.http import HttpResponseBadRequest
-        return HttpResponseBadRequest(f"Invalid planting_date format: {planting_date_str}")
+        # Build plan with error handling
+        try:
+            calculate = _get_calculate_plan()
+            calculated_plan = calculate(crop_name, planting_date, plant_data)
+        except Exception as e:
+            logger.exception("Error building planting plan: %s", e)
+            # Use empty plan if calculation fails
+            calculated_plan = []
+            logger.warning("Using empty plan due to calculation error")
 
-    # Normalize crop_name to match exact key in data.json
-    plant_data = load_plant_data()
-    crop_name = normalize_crop_name(crop_name_raw, plant_data)
-    if crop_name != crop_name_raw:
-        logger.info('Normalized crop_name for save: "%s" -> "%s"', crop_name_raw, crop_name)
+        # Convert due_date in plan to ISO strings for storage
+        for task in calculated_plan:
+            if 'due_date' in task and isinstance(task['due_date'], _date):
+                task['due_date'] = task['due_date'].isoformat()
 
-    # Build plan with error handling
-    try:
-        calculate = _get_calculate_plan()
-        calculated_plan = calculate(crop_name, planting_date, plant_data)
-    except Exception as e:
-        logger.exception("Error building planting plan: %s", e)
-        # Use empty plan if calculation fails
-        calculated_plan = []
-        logger.warning("Using empty plan due to calculation error")
-
-    # Convert due_date in plan to ISO strings for storage
-    for task in calculated_plan:
-        if 'due_date' in task and isinstance(task['due_date'], _date):
-            task['due_date'] = task['due_date'].isoformat()
-
-    # Ensure we have both user_id and username before saving
-    # This is critical for proper association in DynamoDB
-    if not user_id:
-        logger.error('save_planting: No user_id found - cannot save planting without user association')
-        return redirect('index')
-    
-    if not username:
-        # Fallback: use user_id as username if no username found
-        # This ensures the planting can still be saved
-        username = user_id
-        logger.warning('save_planting: No username found, using user_id as username: %s', username)
-    
-    # Compose planting dict; include both identifiers (required for DynamoDB queries)
-    new_planting = {
-        'crop_name': crop_name,
-        'planting_date': planting_date.isoformat(),
-        'batch_id': batch_id,
-        'notes': notes,
-        'plan': calculated_plan,
-        'image_url': image_url,
-        'user_id': user_id,  # Cognito sub or django_<pk>
-        'username': username,  # Username from Cognito or Django
-    }
-    
-    logger.info('save_planting: Saving planting with user_id=%s, username=%s', user_id, username)
-
-    # Ensure a planting_id for session immediacy
-    local_planting_id = str(uuid.uuid4())
-    new_planting['planting_id'] = new_planting.get('planting_id') or local_planting_id
-
-    # Persist to DynamoDB - this is critical for permanent storage
-    # The planting will be associated with the logged-in user via user_id and username
-    try:
-        # Log the planting data before saving (for debugging)
-        logger.debug('Attempting to save planting to DynamoDB: user_id=%s, username=%s, crop_name=%s, planting_date=%s', 
-                    user_id, username, crop_name, planting_date.isoformat())
-        logger.debug('Planting data keys: %s', list(new_planting.keys()))
+        # Ensure we have both user_id and username before saving
+        # This is critical for proper association in DynamoDB
+        if not user_id:
+            logger.error('save_planting: No user_id found - cannot save planting without user association')
+            return redirect('index')
         
-        returned_id = save_planting_to_dynamodb(new_planting)
-        if returned_id:
-            new_planting['planting_id'] = returned_id
-            logger.info('✅ Saved planting %s to DynamoDB for user_id=%s, username=%s', returned_id, user_id, username)
-        else:
-            logger.error('❌ save_planting_to_dynamodb returned None - planting NOT saved to DynamoDB!')
-            logger.error('Planting data: user_id=%s, username=%s, crop_name=%s', user_id, username, crop_name)
-            logger.error('Check logs above for DynamoDB errors (ClientError, permissions, etc.)')
-            logger.warning('Using local id %s for session only', local_planting_id)
-    except Exception as e:
-        logger.exception('❌ Exception saving planting to DynamoDB: %s', e)
-        logger.error('Exception type: %s', type(e).__name__)
-        logger.error('Planting data: user_id=%s, username=%s, crop_name=%s', user_id, username, crop_name)
-        logger.error('Planting will be lost if session expires!')
+        if not username:
+            # Fallback: use user_id as username if no username found
+            # This ensures the planting can still be saved
+            username = user_id
+            logger.warning('save_planting: No username found, using user_id as username: %s', username)
+        
+        # Compose planting dict; include both identifiers (required for DynamoDB queries)
+        new_planting = {
+            'crop_name': crop_name,
+            'planting_date': planting_date.isoformat(),
+            'batch_id': batch_id,
+            'notes': notes,
+            'plan': calculated_plan,
+            'image_url': image_url,
+            'user_id': user_id,  # Cognito sub or django_<pk>
+            'username': username,  # Username from Cognito or Django
+        }
+        
+        logger.info('save_planting: Saving planting with user_id=%s, username=%s', user_id, username)
 
-    # Always save to session so it appears immediately
-    try:
-        user_plantings = request.session.get('user_plantings', [])
-        user_plantings.append(new_planting)
-        request.session['user_plantings'] = user_plantings
-        request.session.modified = True
-        logger.info('✅ Saved planting to session: total=%d, planting_id=%s, user_id=%s, username=%s', 
-                    len(user_plantings), new_planting.get('planting_id'), user_id, username)
-    except Exception as session_error:
-        logger.exception('❌ Error saving planting to session: %s', session_error)
-        # Don't fail the request if session save fails - DynamoDB save succeeded
-        logger.warning('⚠️ Planting saved to DynamoDB but session save failed - user may need to refresh to see it')
-    logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
-                crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
+        # Ensure a planting_id for session immediacy
+        local_planting_id = str(uuid.uuid4())
+        new_planting['planting_id'] = new_planting.get('planting_id') or local_planting_id
 
-    # Create in-app notification when planting is saved (works locally with session storage)
-    try:
-        from .dynamodb_helper import save_notification
-        planting_id_for_notification = returned_id if returned_id else new_planting.get('planting_id') or local_planting_id
-        if user_id:
-            logger.info('🔔 Attempting to create in-app notification for user_id=%s, crop_name=%s', user_id, crop_name)
-            notification_id = save_notification(
-                user_id=str(user_id).strip(),
-                notification_type='plant_added',
-                title=f'Planting Added: {crop_name}',
-                message=f'You\'ve successfully added {crop_name}. Planting date: {planting_date.strftime("%B %d, %Y")}.',
-                planting_id=str(planting_id_for_notification),
-                metadata={'crop_name': crop_name, 'planting_date': planting_date.isoformat()},
-                request=request  # Pass request for session fallback
-            )
-            if notification_id:
-                logger.info('✅ Created in-app notification for new planting: notification_id=%s, user_id=%s', notification_id, user_id)
+        # Initialize returned_id before try block to avoid NameError
+        returned_id = None
+
+        # Persist to DynamoDB - this is critical for permanent storage
+        # The planting will be associated with the logged-in user via user_id and username
+        try:
+            # Log the planting data before saving (for debugging)
+            logger.debug('Attempting to save planting to DynamoDB: user_id=%s, username=%s, crop_name=%s, planting_date=%s', 
+                        user_id, username, crop_name, planting_date.isoformat())
+            logger.debug('Planting data keys: %s', list(new_planting.keys()))
+            
+            returned_id = save_planting_to_dynamodb(new_planting)
+            if returned_id:
+                new_planting['planting_id'] = returned_id
+                logger.info('✅ Saved planting %s to DynamoDB for user_id=%s, username=%s', returned_id, user_id, username)
             else:
-                logger.warning('⚠️ save_notification returned None - notification not created.')
-        else:
-            logger.warning('⚠️ No user_id available - skipping in-app notification creation')
-    except Exception as e:
-        logger.exception('❌ Error creating in-app notification for new planting: %s', e)
-        # Don't fail the request if notification creation fails
+                logger.error('❌ save_planting_to_dynamodb returned None - planting NOT saved to DynamoDB!')
+                logger.error('Planting data: user_id=%s, username=%s, crop_name=%s', user_id, username, crop_name)
+                logger.error('Check logs above for DynamoDB errors (ClientError, permissions, etc.)')
+                logger.warning('Using local id %s for session only', local_planting_id)
+        except Exception as e:
+            logger.exception('❌ Exception saving planting to DynamoDB: %s', e)
+            logger.error('Exception type: %s', type(e).__name__)
+            logger.error('Planting data: user_id=%s, username=%s, crop_name=%s', user_id, username, crop_name)
+            logger.error('Planting will be lost if session expires!')
 
-    # Send SNS email notification when planting is saved
-    logger.info('🔔 SNS Notification: Starting notification process for planting save (user_id=%s, username=%s)', user_id, username)
-    try:
-        from .sns_helper import publish_notification, ensure_email_subscribed, get_topic_arn
-        from .dynamodb_helper import get_user_data_from_token
-        
-        # Get user's email - try multiple sources
-        user_email = None
-        email_source = None
-        logger.debug('🔔 SNS Notification: Attempting to retrieve email for user_id=%s, username=%s', user_id, username)
-        
-        # Try Cognito payload first (most reliable)
-        if hasattr(request, 'cognito_payload') and request.cognito_payload:
-            user_email = request.cognito_payload.get('email')
-            if user_email:
-                email_source = 'cognito_payload'
-                logger.info('save_planting: Found email from cognito_payload: %s', user_email)
-        
-        # Try helper function
-        if not user_email:
-            try:
-                user_data = get_user_data_from_token(request)
-                if user_data:
-                    user_email = user_data.get('email')
-                    if user_email:
-                        email_source = 'get_user_data_from_token'
-                        logger.info('save_planting: Found email from get_user_data_from_token: %s', user_email)
-            except Exception as e:
-                logger.debug('save_planting: Error getting user data from token: %s', e)
-        
-        # Fallback to Django user email
-        if not user_email and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-            user_email = getattr(request.user, 'email', None)
-            if user_email:
-                email_source = 'django_user'
-                logger.info('save_planting: Found email from Django user: %s', user_email)
-        
-        # Final fallback: try to get email from DynamoDB user record
-        if not user_email and username:
-            try:
-                from .dynamodb_helper import dynamo_resource, DYNAMO_USERS_TABLE
-                from boto3.dynamodb.conditions import Attr
-                table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
-                # Try to get user by username (PK) or user_id
+        # Always save to session so it appears immediately
+        try:
+            user_plantings = request.session.get('user_plantings', [])
+            user_plantings.append(new_planting)
+            request.session['user_plantings'] = user_plantings
+            request.session.modified = True
+            logger.info('✅ Saved planting to session: total=%d, planting_id=%s, user_id=%s, username=%s', 
+                        len(user_plantings), new_planting.get('planting_id'), user_id, username)
+        except Exception as session_error:
+            logger.exception('❌ Error saving planting to session: %s', session_error)
+            # Don't fail the request if session save fails - DynamoDB save succeeded
+            logger.warning('⚠️ Planting saved to DynamoDB but session save failed - user may need to refresh to see it')
+        logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
+                    crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
+
+        # Create in-app notification when planting is saved (works locally with session storage)
+        try:
+            from .dynamodb_helper import save_notification
+            # Use returned_id if available, otherwise fall back to planting_id or local_planting_id
+            planting_id_for_notification = returned_id if returned_id else (new_planting.get('planting_id') or local_planting_id)
+            if user_id:
+                logger.info('🔔 Attempting to create in-app notification for user_id=%s, crop_name=%s', user_id, crop_name)
+                notification_id = save_notification(
+                    user_id=str(user_id).strip(),
+                    notification_type='plant_added',
+                    title=f'Planting Added: {crop_name}',
+                    message=f'You\'ve successfully added {crop_name}. Planting date: {planting_date.strftime("%B %d, %Y")}.',
+                    planting_id=str(planting_id_for_notification),
+                    metadata={'crop_name': crop_name, 'planting_date': planting_date.isoformat()},
+                    request=request  # Pass request for session fallback
+                )
+                if notification_id:
+                    logger.info('✅ Created in-app notification for new planting: notification_id=%s, user_id=%s', notification_id, user_id)
+                else:
+                    logger.warning('⚠️ save_notification returned None - notification not created.')
+            else:
+                logger.warning('⚠️ No user_id available - skipping in-app notification creation')
+        except Exception as e:
+            logger.exception('❌ Error creating in-app notification for new planting: %s', e)
+            # Don't fail the request if notification creation fails
+
+        # Send SNS email notification when planting is saved
+        logger.info('🔔 SNS Notification: Starting notification process for planting save (user_id=%s, username=%s)', user_id, username)
+        try:
+            from .sns_helper import publish_notification, ensure_email_subscribed, get_topic_arn
+            from .dynamodb_helper import get_user_data_from_token
+            
+            # Get user's email - try multiple sources
+            user_email = None
+            email_source = None
+            logger.debug('🔔 SNS Notification: Attempting to retrieve email for user_id=%s, username=%s', user_id, username)
+            
+            # Try Cognito payload first (most reliable)
+            if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                user_email = request.cognito_payload.get('email')
+                if user_email:
+                    email_source = 'cognito_payload'
+                    logger.info('save_planting: Found email from cognito_payload: %s', user_email)
+            
+            # Try helper function
+            if not user_email:
                 try:
-                    resp = table.get_item(Key={'username': username})
-                    if 'Item' in resp:
-                        user_email = resp['Item'].get('email')
+                    user_data = get_user_data_from_token(request)
+                    if user_data:
+                        user_email = user_data.get('email')
                         if user_email:
-                            email_source = 'dynamodb_users_table'
-                            logger.info('save_planting: Found email from DynamoDB users table: %s', user_email)
-                except Exception:
-                    pass
-                # If not found by username, try scanning by user_id
-                if not user_email and user_id:
+                            email_source = 'get_user_data_from_token'
+                            logger.info('save_planting: Found email from get_user_data_from_token: %s', user_email)
+                except Exception as e:
+                    logger.debug('save_planting: Error getting user data from token: %s', e)
+            
+            # Fallback to Django user email
+            if not user_email and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+                user_email = getattr(request.user, 'email', None)
+                if user_email:
+                    email_source = 'django_user'
+                    logger.info('save_planting: Found email from Django user: %s', user_email)
+            
+            # Final fallback: try to get email from DynamoDB user record
+            if not user_email and username:
+                try:
+                    from .dynamodb_helper import dynamo_resource, DYNAMO_USERS_TABLE
+                    from boto3.dynamodb.conditions import Attr
+                    table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
+                    # Try to get user by username (PK) or user_id
                     try:
-                        resp = table.scan(FilterExpression=Attr('user_id').eq(str(user_id)), Limit=1)
-                        items = resp.get('Items', [])
-                        if items:
-                            user_email = items[0].get('email')
+                        resp = table.get_item(Key={'username': username})
+                        if 'Item' in resp:
+                            user_email = resp['Item'].get('email')
                             if user_email:
-                                email_source = 'dynamodb_users_table_scan'
-                                logger.info('save_planting: Found email from DynamoDB users table (scan): %s', user_email)
+                                email_source = 'dynamodb_users_table'
+                                logger.info('save_planting: Found email from DynamoDB users table: %s', user_email)
                     except Exception:
                         pass
-            except Exception as e:
-                logger.debug('save_planting: Error getting email from DynamoDB: %s', e)
-        
-        if user_email:
-            logger.info('save_planting: Sending SNS notification to %s (source: %s)', user_email, email_source)
-            
-            # Ensure email is subscribed to SNS topic (checks if already subscribed)
-            topic_arn = get_topic_arn()
-            if not topic_arn:
-                logger.error('save_planting: SNS_TOPIC_ARN not configured - cannot send notification')
-            else:
-                # Try to ensure subscription (but don't fail if it doesn't work - email might already be subscribed)
-                try:
-                    sub_arn = ensure_email_subscribed(user_email, topic_arn)
-                    if sub_arn:
-                        logger.info('save_planting: Email %s subscription status: %s', user_email, sub_arn)
-                        # Check if subscription is confirmed
-                        if sub_arn == 'PendingConfirmation':
-                            logger.warning('save_planting: Email %s subscription is pending confirmation - notification may not be delivered', user_email)
-                        else:
-                            logger.info('save_planting: Email %s is confirmed and subscribed', user_email)
-                    else:
-                        logger.warning('save_planting: Could not verify subscription for %s, but will still attempt to publish', user_email)
+                    # If not found by username, try scanning by user_id
+                    if not user_email and user_id:
+                        try:
+                            resp = table.scan(FilterExpression=Attr('user_id').eq(str(user_id)), Limit=1)
+                            items = resp.get('Items', [])
+                            if items:
+                                user_email = items[0].get('email')
+                                if user_email:
+                                    email_source = 'dynamodb_users_table_scan'
+                                    logger.info('save_planting: Found email from DynamoDB users table (scan): %s', user_email)
+                        except Exception:
+                            pass
                 except Exception as e:
-                    logger.warning('save_planting: Error checking subscription for %s: %s - will still attempt to publish', user_email, e)
+                    logger.debug('save_planting: Error getting email from DynamoDB: %s', e)
+            
+            if user_email:
+                logger.info('save_planting: Sending SNS notification to %s (source: %s)', user_email, email_source)
                 
-                # Send notification email - publish to topic (will be delivered to all confirmed subscribers)
-                subject = f"Planting Added: {crop_name}"
-                message = f"""Hello {username or 'User'},
+                # Ensure email is subscribed to SNS topic (checks if already subscribed)
+                topic_arn = get_topic_arn()
+                if not topic_arn:
+                    logger.error('save_planting: SNS_TOPIC_ARN not configured - cannot send notification')
+                else:
+                    # Try to ensure subscription (but don't fail if it doesn't work - email might already be subscribed)
+                    try:
+                        sub_arn = ensure_email_subscribed(user_email, topic_arn)
+                        if sub_arn:
+                            logger.info('save_planting: Email %s subscription status: %s', user_email, sub_arn)
+                            # Check if subscription is confirmed
+                            if sub_arn == 'PendingConfirmation':
+                                logger.warning('save_planting: Email %s subscription is pending confirmation - notification may not be delivered', user_email)
+                            else:
+                                logger.info('save_planting: Email %s is confirmed and subscribed', user_email)
+                        else:
+                            logger.warning('save_planting: Could not verify subscription for %s, but will still attempt to publish', user_email)
+                    except Exception as e:
+                        logger.warning('save_planting: Error checking subscription for %s: %s - will still attempt to publish', user_email, e)
+                    
+                    # Send notification email - publish to topic (will be delivered to all confirmed subscribers)
+                    subject = f"Planting Added: {crop_name}"
+                    message = f"""Hello {username or 'User'},
 
 You've successfully added a new planting to your SmartHarvester account:
 
@@ -1131,45 +1137,44 @@ Your planting has been saved and a care schedule has been generated. You can vie
 
 Happy gardening!
 SmartHarvester Team"""
-                
-                try:
-                    logger.info('🔔 SNS Notification: Attempting to publish to topic %s for email %s', topic_arn, user_email)
-                    logger.debug('🔔 SNS Notification: Subject="%s", Message length=%d chars', subject, len(message))
-                    result = publish_notification(subject, message)
-                    if result:
-                        message_id = result.get('MessageId', 'unknown')
-                        logger.info('✅ SUCCESS: Sent SNS notification email for new planting to topic %s (MessageId: %s) - will be delivered to all subscribers including %s', topic_arn, message_id, user_email)
-                    else:
-                        logger.error('❌ FAILED: publish_notification returned None - SNS publish may have failed silently. Check AWS credentials and SNS topic permissions.')
-                except Exception as e:
-                    logger.exception('❌ EXCEPTION: Error while publishing SNS notification: %s', e)
-                    logger.error('❌ Exception details: type=%s, args=%s', type(e).__name__, str(e))
-        else:
-            logger.warning('⚠️ No email found for user (user_id=%s, username=%s) - skipping SNS notification', user_id, username)
-            logger.debug('save_planting: Email lookup attempted from: cognito_payload, get_user_data_from_token, django_user')
-    except Exception as e:
-        logger.exception('❌ Error sending SNS notification for new planting: %s', e)
-        # Don't fail the request if notification fails
+                    
+                    try:
+                        logger.info('🔔 SNS Notification: Attempting to publish to topic %s for email %s', topic_arn, user_email)
+                        logger.debug('🔔 SNS Notification: Subject="%s", Message length=%d chars', subject, len(message))
+                        result = publish_notification(subject, message)
+                        if result:
+                            message_id = result.get('MessageId', 'unknown')
+                            logger.info('✅ SUCCESS: Sent SNS notification email for new planting to topic %s (MessageId: %s) - will be delivered to all subscribers including %s', topic_arn, message_id, user_email)
+                        else:
+                            logger.error('❌ FAILED: publish_notification returned None - SNS publish may have failed silently. Check AWS credentials and SNS topic permissions.')
+                    except Exception as e:
+                        logger.exception('❌ EXCEPTION: Error while publishing SNS notification: %s', e)
+                        logger.error('❌ Exception details: type=%s, args=%s', type(e).__name__, str(e))
+            else:
+                logger.warning('⚠️ No email found for user (user_id=%s, username=%s) - skipping SNS notification', user_id, username)
+                logger.debug('save_planting: Email lookup attempted from: cognito_payload, get_user_data_from_token, django_user')
+        except Exception as e:
+            logger.exception('❌ Error sending SNS notification for new planting: %s', e)
+            # Don't fail the request if notification fails
 
-    # Redirect to index - wrap in try/except to prevent 502 if redirect fails
+        # Redirect to index after successful save - MUST return a response
         try:
             return redirect('index')
         except Exception as redirect_error:
             logger.exception('❌ Error during redirect to index: %s', redirect_error)
             # Return a simple response instead of crashing
             from django.http import HttpResponse
-            return HttpResponse("Planting saved successfully. <a href='/'>Go to dashboard</a>", status=200)
-    
-    except Exception as fatal_error:
-        # Top-level exception handler to prevent 502 crashes - catch any unexpected errors
-        logger.exception('❌ FATAL ERROR in save_planting: %s', fatal_error)
-        logger.error('Error type: %s, Args: %s', type(fatal_error).__name__, str(fatal_error))
+            try:
+                return HttpResponse("Planting saved successfully. <a href='/'>Go to dashboard</a>", status=200)
+            except Exception as response_error:
+                logger.exception('❌ Error creating HttpResponse: %s', response_error)
+                # Last resort - return minimal response
+                from django.http import HttpResponse as HttpResponse2
+                return HttpResponse2("OK", status=200)
+    except Exception as e:
+        logger.exception('❌ FATAL ERROR in save_planting: Unhandled exception caught at top level: %s', e)
         from django.http import HttpResponseServerError
-        try:
-            return HttpResponseServerError("An error occurred while saving the planting. Please try again.")
-        except Exception:
-            # Last resort - return simple text response
-            return HttpResponse("Error saving planting", status=500)
+        return HttpResponseServerError("An unexpected error occurred while saving the planting. Please try again.")
 
 def edit_planting_view(request, planting_id):
     """Edit planting view - loads from DynamoDB or session"""
