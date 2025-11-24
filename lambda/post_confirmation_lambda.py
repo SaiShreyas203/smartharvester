@@ -43,33 +43,21 @@ def lambda_handler(event, context):
         logger.info("No attributes to write for user=%s", user_name)
         return event
 
-    # Use update_item to upsert/merge attributes (won't overwrite PK)
-    update_expressions = []
-    expr_attr_values = {}
-    expr_attr_names = {}
-
-    for i, (k, v) in enumerate(attrs.items()):
-        name_key = f"#k{i}"
-        val_key = f":v{i}"
-        expr_attr_names[name_key] = k
-        expr_attr_values[val_key] = v
-        update_expressions.append(f"{name_key} = {val_key}")
-
-    update_expr = "SET " + ", ".join(update_expressions)
-
+    # Build complete user item with PK (username)
+    user_item = {
+        PK_NAME: user_name,  # Partition key (required)
+    }
+    # Add all attributes
+    user_item.update(attrs)
+    
     try:
-        response = table.update_item(
-            Key={PK_NAME: user_name},
-            UpdateExpression=update_expr,
-            ExpressionAttributeNames=expr_attr_names,
-            ExpressionAttributeValues=expr_attr_values,
-            ReturnValues="ALL_NEW"
-        )
-        logger.info("DynamoDB update succeeded for user=%s, attributes=%s",
-                    user_name, list(attrs.keys()))
-        # response['Attributes'] contains the up-to-date item
+        # Use put_item for idempotent upsert (creates if doesn't exist, updates if exists)
+        # This ensures user is always saved, even if Lambda runs multiple times
+        table.put_item(Item=user_item)
+        logger.info("DynamoDB put_item succeeded for user=%s (PK=%s), attributes=%s",
+                    user_name, PK_NAME, list(attrs.keys()))
     except ClientError as e:
-        logger.exception("DynamoDB update_item failed for user=%s", user_name)
+        logger.exception("DynamoDB put_item failed for user=%s", user_name)
     except Exception:
         logger.exception("Unexpected error writing to DynamoDB for user=%s", user_name)
 

@@ -115,6 +115,72 @@ def create_or_update_user(user_id: str, payload: Dict[str, Any]) -> bool:
     return save_user_to_dynamodb(user_id, payload)
 
 
+def get_user_from_dynamodb(username_or_userid: str) -> Optional[Dict[str, Any]]:
+    """
+    Get user data from DynamoDB users table by username (PK) or user_id.
+    Tries PK first, then scans by user_id if not found.
+    Returns user item dict or None if not found.
+    This is the primary source for Cognito user data after login.
+    """
+    try:
+        table = _table(DYNAMO_USERS_TABLE)
+        pk_name = DYNAMO_USERS_PK
+        
+        # Try direct get by PK (username is usually the PK)
+        try:
+            resp = table.get_item(Key={pk_name: str(username_or_userid)})
+            item = resp.get("Item")
+            if item:
+                # Convert Decimal types to native Python types
+                from decimal import Decimal
+                def convert_decimal(obj):
+                    if isinstance(obj, Decimal):
+                        return int(obj) if obj % 1 == 0 else float(obj)
+                    elif isinstance(obj, dict):
+                        return {k: convert_decimal(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_decimal(v) for v in obj]
+                    return obj
+                item = convert_decimal(item)
+                logger.debug("Found user in DynamoDB by PK %s: %s", pk_name, username_or_userid)
+                return item
+        except ClientError as e:
+            logger.debug("GetItem by PK failed for %s: %s (will try scan)", username_or_userid, e)
+        
+        # Fallback: scan by user_id attribute
+        try:
+            resp = table.scan(
+                FilterExpression=Attr("user_id").eq(str(username_or_userid)),
+                Limit=1
+            )
+            items = resp.get("Items", [])
+            if items:
+                # Convert Decimal types
+                from decimal import Decimal
+                def convert_decimal(obj):
+                    if isinstance(obj, Decimal):
+                        return int(obj) if obj % 1 == 0 else float(obj)
+                    elif isinstance(obj, dict):
+                        return {k: convert_decimal(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_decimal(v) for v in obj]
+                    return obj
+                item = convert_decimal(items[0])
+                logger.debug("Found user in DynamoDB by user_id: %s", username_or_userid)
+                return item
+        except ClientError as e:
+            logger.debug("Scan by user_id failed for %s: %s", username_or_userid, e)
+        
+        logger.debug("User not found in DynamoDB: %s", username_or_userid)
+        return None
+    except ClientError as e:
+        logger.exception("DynamoDB ClientError getting user %s: %s", username_or_userid, e)
+        return None
+    except Exception as e:
+        logger.exception("Unexpected error getting user %s from DynamoDB: %s", username_or_userid, e)
+        return None
+
+
 def get_user_data_from_token(token_or_request: Union[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Best-effort extraction of user payload from a request or an id_token string.

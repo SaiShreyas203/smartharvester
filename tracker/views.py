@@ -199,7 +199,34 @@ def index(request):
     logger.info('Index: user_id = %s, email = %s, name = %s, username = %s', 
                 user_id if user_id else 'None', user_email, user_name, username)
 
-    # ALWAYS load from DynamoDB first if user_id exists (permanent storage)
+    # STEP 1: Load user data from DynamoDB (primary source for Cognito users)
+    # This ensures we have the latest user profile data from DynamoDB
+    if user_id or username:
+        try:
+            from .dynamodb_helper import get_user_from_dynamodb
+            dynamodb_user = None
+            # Try loading by user_id first, then username
+            if user_id:
+                dynamodb_user = get_user_from_dynamodb(user_id)
+            if not dynamodb_user and username:
+                dynamodb_user = get_user_from_dynamodb(username)
+            
+            if dynamodb_user:
+                # Use DynamoDB user data as source of truth
+                if not user_email and dynamodb_user.get('email'):
+                    user_email = dynamodb_user.get('email')
+                if not user_name and dynamodb_user.get('name'):
+                    user_name = dynamodb_user.get('name')
+                if not username and dynamodb_user.get('username'):
+                    username = dynamodb_user.get('username')
+                if not user_id and dynamodb_user.get('user_id'):
+                    user_id = dynamodb_user.get('user_id')
+                logger.info('✅ Loaded user data from DynamoDB: user_id=%s, username=%s, email=%s', 
+                           user_id, username, user_email)
+        except Exception as e:
+            logger.debug('Could not load user from DynamoDB (will use token data): %s', e)
+
+    # STEP 2: ALWAYS load plantings from DynamoDB first if user_id exists (permanent storage)
     # Then merge with session for immediate display (newly saved items may not be in DynamoDB yet)
     dynamodb_load_failed = False
     dynamodb_plantings = []
@@ -754,139 +781,117 @@ def save_planting(request):
      - resolve username (table PK) and a stable user_id (Cognito sub or django_<pk>)
      - persist planting to DynamoDB (including username and user_id)
      - always save to session for immediate UI
+     
+    Works like Django login - checks Django user first, then Cognito user.
     """
     import logging
     logger = logging.getLogger(__name__)
     
-    # Wrap entire function body to ensure it always returns a response
-    try:
-        if request.method != 'POST':
-            return redirect('index')
+    if request.method != 'POST':
+        return redirect('index')
 
-        from datetime import date as _date
-        import uuid
+    from datetime import date as _date
+    import uuid
 
-        # First check for Cognito user (from middleware) - same logic as index view and persist_cognito_user
-        user_id = None
-        username = None
-        
-        # Check for Cognito user first (from middleware - fastest path)
+    # STEP 1: Check Django user first (same as Django login pattern)
+    user_id = None
+    username = None
+    
+    if hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+        username = getattr(request.user, 'username', None)
+        user_id = f"django_{getattr(request.user, 'pk', '')}"
+        logger.info('save_planting: Using Django user - user_id: %s, username: %s', user_id, username)
+    
+    # STEP 2: If no Django user, check Cognito user (from middleware)
+    if not user_id:
         if hasattr(request, 'cognito_user_id') and request.cognito_user_id:
             user_id = request.cognito_user_id
             if hasattr(request, 'cognito_payload') and request.cognito_payload:
                 payload = request.cognito_payload
-                # Use same username extraction logic as persist_cognito_user to ensure consistency
                 username = (
                     payload.get('cognito:username') or
                     payload.get('preferred_username') or
                     payload.get('username') or
                     payload.get('email')
                 )
-            logger.info('save_planting: Using Cognito user_id from middleware: %s, username: %s', user_id, username)
-        else:
-            # Try helper functions
+            logger.info('save_planting: Using Cognito user from middleware - user_id: %s, username: %s', user_id, username)
+    
+    # STEP 3: If still no user, try to get from session token
+    if not user_id:
+        id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+        if id_token:
             try:
-                from .dynamodb_helper import get_user_id_from_token, get_user_data_from_token
-                user_id = get_user_id_from_token(request)
-                user_data = get_user_data_from_token(request)
-                if user_data:
-                    # Use same username extraction logic as persist_cognito_user
+                import jwt as pyjwt
+                decoded = pyjwt.decode(id_token, options={"verify_signature": False})
+                user_id = decoded.get('sub')
+                if not username:
                     username = (
-                        user_data.get('cognito:username') or
-                        user_data.get('preferred_username') or
-                        user_data.get('username') or
-                        user_data.get('email')
+                        decoded.get('cognito:username') or
+                        decoded.get('preferred_username') or
+                        decoded.get('username') or
+                        decoded.get('email')
                     )
-                logger.info('save_planting: Using user_id from helper: %s, username: %s', user_id, username)
-            except Exception:
-                logger.exception("Error extracting user identity from helpers")
-            
-            # If still no username, try to get from session token directly
-            if not username:
-                try:
-                    id_token = request.session.get('id_token')
-                    if id_token:
-                        import jwt as pyjwt
-                        decoded = pyjwt.decode(id_token, options={"verify_signature": False})
-                        username = (
-                            decoded.get('cognito:username') or
-                            decoded.get('preferred_username') or
-                            decoded.get('username') or
-                            decoded.get('email')
-                        )
-                        if not user_id:
-                            user_id = decoded.get('sub')
-                        logger.info('save_planting: Extracted from session token - user_id: %s, username: %s', user_id, username)
-                except Exception:
-                    logger.debug("Could not extract username from session token")
-
-        # Fallback to Django auth details if available
-        if not user_id and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
-            username = getattr(request.user, 'username', None)
-            user_id = f"django_{getattr(request.user, 'pk', '')}"
-            logger.info('save_planting: Using Django user_id: %s, username: %s', user_id, username)
-
-        # Require authentication - redirect to login if no user found
-        if not user_id:
-            # Final check: if there's a token in session, try to extract user_id from it
-            id_token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
-            if id_token:
-                try:
-                    import jwt as pyjwt
-                    decoded = pyjwt.decode(id_token, options={"verify_signature": False})
-                    user_id = decoded.get('sub')
-                    if not username:
-                        username = (
-                            decoded.get('cognito:username') or
-                            decoded.get('preferred_username') or
-                            decoded.get('username') or
-                            decoded.get('email')
-                        )
-                    logger.info('save_planting: Extracted user_id from session token: %s, username: %s', user_id, username)
-                except Exception as e:
-                    logger.warning('save_planting: Cannot extract user_id from token: %s', e)
-                    logger.warning('save_planting: Session has token but extraction failed - redirecting to login')
-                    logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
-                    # Save next_url so user returns here after login
-                    try:
-                        request.session['next_url'] = '/add/'
-                        request.session.modified = True
-                    except Exception as session_error:
-                        logger.exception('Error saving session before redirect: %s', session_error)
-                    try:
-                        return redirect('cognito_login')
-                    except Exception as redirect_err:
-                        logger.exception('Error during redirect to cognito_login: %s', redirect_err)
-                        from django.http import HttpResponse
-                        return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
-            else:
-                logger.warning('save_planting: No authenticated user found - no token in session')
-                logger.debug('save_planting: Session keys: %s', list(request.session.keys()))
-                logger.debug('save_planting: Has cognito_user_id attr: %s', hasattr(request, 'cognito_user_id'))
-                if hasattr(request, 'cognito_user_id'):
-                    logger.debug('save_planting: cognito_user_id value: %s', getattr(request, 'cognito_user_id', None))
-                # Save next_url so user returns here after login
-                try:
-                    request.session['next_url'] = '/add/'
-                    request.session.modified = True
-                except Exception as session_error:
-                    logger.exception('Error saving session before redirect: %s', session_error)
-                try:
-                    return redirect('cognito_login')
-                except Exception as redirect_err:
-                    logger.exception('Error during redirect to cognito_login: %s', redirect_err)
-                    from django.http import HttpResponse
-                    return HttpResponse("Please log in to continue.", status=302, headers={'Location': '/auth/login/'})
-
-            crop_name_raw = request.POST.get('crop_name')
+                logger.info('save_planting: Extracted from session token - user_id: %s, username: %s', user_id, username)
+            except Exception as e:
+                logger.warning('save_planting: Cannot extract user_id from token: %s', e)
+    
+    # STEP 4: Require authentication - redirect to login if no user found
+    if not user_id:
+        logger.warning('save_planting: No authenticated user found - redirecting to login')
+        try:
+            request.session['next_url'] = '/add/'
+            request.session.modified = True
+        except Exception:
+            pass
+        return redirect('cognito_login')
+    
+    # Ensure username is set (use user_id as fallback)
+    if not username:
+        username = user_id
+        logger.warning('save_planting: No username found, using user_id as username: %s', username)
+    
+    # Wrap the rest in try-except to catch any errors
+    try:
+        crop_name_raw = request.POST.get('crop_name')
         planting_date_str = request.POST.get('planting_date')
         # fixed quoting for strftime
         batch_id = request.POST.get('batch_id', f"batch-{_date.today().strftime('%Y%m%d')}")
         notes = request.POST.get('notes', '')
 
-        # Lazy helpers
-        from .dynamodb_helper import save_planting_to_dynamodb
+        # Lazy helpers - always import DynamoDB helpers for Cognito users
+        from .dynamodb_helper import save_planting_to_dynamodb, get_user_from_dynamodb
         from .s3_helper import upload_planting_image
+        
+        # TRUST LAMBDA TRIGGER: Load user from DynamoDB (Lambda already saved it)
+        # Use DynamoDB user data as source of truth for user_id and username
+        if user_id and not user_id.startswith('django_'):
+            try:
+                dynamodb_user = None
+                # Try loading by user_id first, then username
+                if user_id:
+                    dynamodb_user = get_user_from_dynamodb(user_id)
+                if not dynamodb_user and username:
+                    dynamodb_user = get_user_from_dynamodb(username)
+                
+                if dynamodb_user:
+                    # Use DynamoDB user data as source of truth (Lambda trigger saved it)
+                    dynamodb_user_id = dynamodb_user.get('user_id') or dynamodb_user.get('sub')
+                    dynamodb_username = dynamodb_user.get('username') or dynamodb_user.get('preferred_username')
+                    
+                    if dynamodb_user_id:
+                        user_id = dynamodb_user_id
+                        logger.info('✅ Using user_id from DynamoDB (Lambda trigger saved it): %s', user_id)
+                    if dynamodb_username:
+                        username = dynamodb_username
+                        logger.info('✅ Using username from DynamoDB (Lambda trigger saved it): %s', username)
+                else:
+                    logger.warning('⚠️ Cognito user not found in DynamoDB (user_id=%s, username=%s). '
+                                  'Lambda trigger may not have run yet. Using token data as fallback.', 
+                                  user_id, username)
+                    # Don't save user here - Lambda trigger will handle it
+            except Exception as e:
+                logger.debug('Could not load user from DynamoDB: %s', e)
+                # Don't fail planting save if DynamoDB lookup fails - use token data as fallback
 
         # Image upload -> returns public URL if s3_helper uses public-read, otherwise presigned URL
         image_url = ""
@@ -934,12 +939,7 @@ def save_planting(request):
             if 'due_date' in task and isinstance(task['due_date'], _date):
                 task['due_date'] = task['due_date'].isoformat()
 
-        # Ensure we have both user_id and username before saving
-        # This is critical for proper association in DynamoDB
-        if not user_id:
-            logger.error('save_planting: No user_id found - cannot save planting without user association')
-            return redirect('index')
-        
+        # Username should already be set from authentication checks above
         if not username:
             # Fallback: use user_id as username if no username found
             # This ensures the planting can still be saved
@@ -1854,15 +1854,18 @@ def cognito_callback(request):
             except Exception:
                 logger.exception('Exception decoding id_token')
 
-            # Persist user and migrate session plantings using the unified helper
+            # Load user from DynamoDB (Lambda trigger already saved it) and migrate session plantings
             try:
-                saved_ok, resolved_user_id = persist_cognito_user(request, id_token=id_token, claims=payload)
-                if saved_ok and resolved_user_id:
+                user_exists, resolved_user_id = persist_cognito_user(request, id_token=id_token, claims=payload)
+                if resolved_user_id:
                     request.session['user_id'] = resolved_user_id
                     request.session.modified = True
-                    logger.info('persist_cognito_user succeeded: %s', resolved_user_id)
+                    if user_exists:
+                        logger.info('✅ User loaded from DynamoDB (Lambda trigger saved it): user_id=%s', resolved_user_id)
+                    else:
+                        logger.warning('⚠️ User not found in DynamoDB yet (Lambda trigger may not have run). Using token user_id: %s', resolved_user_id)
                 else:
-                    logger.warning('persist_cognito_user did not save user (saved_ok=%s)', saved_ok)
+                    logger.warning('persist_cognito_user did not return user_id')
             except Exception:
                 logger.exception('persist_cognito_user raised an exception')
         else:
@@ -1895,74 +1898,106 @@ def cognito_callback(request):
 
 def persist_cognito_user(request, id_token: str | None = None, claims: dict | None = None) -> tuple[bool, str | None]:
     """
-    Persist Cognito user info into the users DynamoDB table and migrate session plantings.
+    Load Cognito user from DynamoDB (Lambda trigger already saved it) and migrate session plantings.
+    
+    IMPORTANT: The Post Confirmation Lambda trigger automatically saves user data to DynamoDB
+    when the user confirms their account. This function trusts that Lambda trigger and loads
+    the user from DynamoDB instead of duplicating the save operation.
+    
     - id_token: optional JWT string (if not provided, the helper will try request.session['id_token'])
     - claims: optional already-decoded claims dict (if provided, decoding is skipped)
-    Returns (saved_ok, resolved_user_id)
+    Returns (user_exists_in_dynamo, resolved_user_id)
     """
     import logging
     import uuid
-    from .dynamodb_helper import save_user_to_dynamodb, get_user_data_from_token, get_user_id_from_token, save_planting_to_dynamodb
+    from .dynamodb_helper import get_user_data_from_token, get_user_id_from_token, save_planting_to_dynamodb, get_user_from_dynamodb
     logger = logging.getLogger(__name__)
 
     try:
-        # Resolve claims and stable id
+        # Resolve claims and stable id from token
         if claims is None:
-            # get_user_data_from_token handles None or raw token depending on your helper implementation
             claims = get_user_data_from_token(id_token or request.session.get("id_token")) or {}
-        user_id = get_user_id_from_token(id_token or request.session.get("id_token")) or claims.get("sub")
+        user_id_from_token = get_user_id_from_token(id_token or request.session.get("id_token")) or claims.get("sub")
 
-        # Build username (table PK expected to be "username")
+        # Extract username using same priority as Lambda trigger
+        # Lambda uses event.get("userName") which is typically cognito:username
         username = (
-            claims.get("cognito:username")
-            or claims.get("preferred_username")
-            or claims.get("username")
-            or claims.get("email")
+            claims.get("cognito:username") or      # Primary (matches Lambda's event.get("userName"))
+            claims.get("preferred_username") or    # Secondary
+            claims.get("username") or              # Tertiary
+            claims.get("email")                     # Fallback
         )
-        # If username still missing, fallback to user_id (string) to ensure PK not empty
+        
         if not username:
-            if user_id:
-                username = f"user_{user_id}"
-            else:
-                username = f"anon_{uuid.uuid4().hex[:8]}"
-
-        # Build item to store
-        user_item = {
-            "username": username,
-            "user_id": user_id or username,
-            "email": claims.get("email"),
-            "name": claims.get("name") or " ".join(filter(None, (claims.get("given_name"), claims.get("family_name")))),
-            "country": claims.get("locale") or claims.get("zoneinfo"),
-            # store sub explicitly too (helpful later)
-            "sub": claims.get("sub")
-        }
-        # Remove None values (Dynamo helper may already do this, but safe)
-        user_item = {k: v for k, v in user_item.items() if v is not None and v != ""}
-
-        saved = save_user_to_dynamodb(user_id or username, user_item)
-        if saved:
-            logger.info("Saved user to DynamoDB: username=%s user_id=%s", username, user_item.get("user_id"))
+            logger.warning("persist_cognito_user: Could not extract username from token claims")
+            return False, None
+        
+        # TRUST LAMBDA TRIGGER: Load user from DynamoDB (Lambda already saved it)
+        dynamodb_user = None
+        if username:
+            dynamodb_user = get_user_from_dynamodb(username)
+        
+        # If not found by username, try by user_id
+        if not dynamodb_user and user_id_from_token:
+            dynamodb_user = get_user_from_dynamodb(user_id_from_token)
+        
+        if dynamodb_user:
+            # Lambda trigger already saved user - use DynamoDB data as source of truth
+            from .dynamodb_helper import DYNAMO_USERS_PK
+            resolved_user_id = dynamodb_user.get("user_id") or dynamodb_user.get("sub") or user_id_from_token
+            resolved_username = dynamodb_user.get("username") or dynamodb_user.get(DYNAMO_USERS_PK) or username
+            
+            logger.info("✅ User found in DynamoDB (saved by Lambda trigger): username=%s, user_id=%s", 
+                       resolved_username, resolved_user_id)
+            
+            # Migrate session plantings (if any) using DynamoDB user_id
+            session_plantings = request.session.pop("user_plantings", []) or []
+            migrated = 0
+            for sp in session_plantings:
+                try:
+                    sp["user_id"] = resolved_user_id
+                    sp["username"] = resolved_username
+                    sp.setdefault("planting_id", sp.get("planting_id") or str(uuid.uuid4()))
+                    pid = save_planting_to_dynamodb(sp)
+                    if pid:
+                        migrated += 1
+                except Exception:
+                    logger.exception("Failed to migrate planting %s", sp.get("planting_id"))
+            if migrated:
+                logger.info("✅ Migrated %d session plantings to DynamoDB for user_id=%s", migrated, resolved_user_id)
+            
+            request.session.modified = True
+            return True, resolved_user_id
         else:
-            logger.warning("save_user_to_dynamodb returned falsy for username=%s", username)
-
-        # Migrate session plantings (if any)
-        session_plantings = request.session.pop("user_plantings", []) or []
-        migrated = 0
-        for sp in session_plantings:
-            try:
-                sp["user_id"] = user_item.get("user_id") or user_item.get("sub") or user_item.get("username")
-                sp.setdefault("planting_id", sp.get("planting_id") or str(uuid.uuid4()))
-                pid = save_planting_to_dynamodb(sp)
-                if pid:
-                    migrated += 1
-            except Exception:
-                logger.exception("Failed to migrate planting %s", sp.get("planting_id"))
-        if migrated:
-            logger.info("Migrated %d session plantings into Dynamo for %s", migrated, username)
-        # mark session changed
-        request.session.modified = True
-
-        return bool(saved), user_item.get("user_id")
+            # User not found in DynamoDB - Lambda trigger may not have run yet, or user just signed up
+            logger.warning("⚠️ User not found in DynamoDB (username=%s, user_id=%s). "
+                          "Lambda trigger may not have run yet or user is very new. "
+                          "Will use token data as fallback.", username, user_id_from_token)
+            
+            # Fallback: Use token data (user might be very new and Lambda hasn't run yet)
+            # Don't save to DynamoDB here - let Lambda handle it on next confirmation
+            resolved_user_id = user_id_from_token or username
+            logger.info("Using token data as fallback: user_id=%s", resolved_user_id)
+            
+            # Still migrate session plantings using token user_id
+            session_plantings = request.session.pop("user_plantings", []) or []
+            migrated = 0
+            for sp in session_plantings:
+                try:
+                    sp["user_id"] = resolved_user_id
+                    sp["username"] = username
+                    sp.setdefault("planting_id", sp.get("planting_id") or str(uuid.uuid4()))
+                    pid = save_planting_to_dynamodb(sp)
+                    if pid:
+                        migrated += 1
+                except Exception:
+                    logger.exception("Failed to migrate planting %s", sp.get("planting_id"))
+            if migrated:
+                logger.info("Migrated %d session plantings using token user_id=%s", migrated, resolved_user_id)
+            
+            request.session.modified = True
+            return False, resolved_user_id  # Return False to indicate not found in DynamoDB yet
+            
     except Exception:
         logger.exception("persist_cognito_user failed")
         return False, None
@@ -1980,49 +2015,90 @@ def user_profile_api(request):
 
 def profile(request):
     """Handle profile view and profile updates. (web UI) - Works with Cognito and Django auth"""
-    # Get user info from Cognito tokens or Django auth
+    # TRUST LAMBDA TRIGGER: Load user from DynamoDB first (Lambda already saved it)
     user_data = {}
     user_id = None
+    username = None
     
-    # Check for Cognito user first (from middleware)
+    # STEP 1: Extract user_id and username from middleware/tokens (for lookup)
     if hasattr(request, 'cognito_payload') and request.cognito_payload:
         payload = request.cognito_payload
-        user_data = {
-            'username': payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email', 'User'),
-            'email': payload.get('email', ''),
-            'name': payload.get('name') or f"{payload.get('given_name', '')} {payload.get('family_name', '')}".strip(),
-            'user_id': payload.get('sub'),
-            'first_name': payload.get('given_name', ''),
-            'last_name': payload.get('family_name', ''),
-        }
         user_id = payload.get('sub')
-        logger.info('Profile: Using Cognito user data for user_id: %s, email: %s', user_id, user_data.get('email'))
+        username = (
+            payload.get('cognito:username') or
+            payload.get('preferred_username') or
+            payload.get('username') or
+            payload.get('email')
+        )
     elif hasattr(request, 'session') and request.session.get('id_token'):
         # Try to decode from session token
         get_user_data_from_token = _get_helper('get_user_data_from_token')
         if get_user_data_from_token:
             payload = get_user_data_from_token(request) or {}
-            user_data = {
-                'username': payload.get('preferred_username') or payload.get('cognito:username') or payload.get('email', 'User'),
-                'email': payload.get('email', ''),
-                'name': payload.get('name') or f"{payload.get('given_name', '')} {payload.get('family_name', '')}".strip(),
-                'user_id': payload.get('sub'),
-                'first_name': payload.get('given_name', ''),
-                'last_name': payload.get('family_name', ''),
-            }
             user_id = payload.get('sub')
+            username = (
+                payload.get('cognito:username') or
+                payload.get('preferred_username') or
+                payload.get('username') or
+                payload.get('email')
+            )
     # Fallback to Django auth
     elif hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
         user = request.user
-        user_data = {
-            'username': user.username,
-            'email': getattr(user, 'email', ''),
-            'name': user.get_full_name() or user.username,
-            'user_id': str(user.pk),
-            'first_name': getattr(user, 'first_name', ''),
-            'last_name': getattr(user, 'last_name', ''),
-        }
         user_id = str(user.pk)
+        username = user.username
+    
+    # STEP 2: Load user from DynamoDB (Lambda trigger already saved it) - TRUST LAMBDA
+    if user_id or username:
+        try:
+            from .dynamodb_helper import get_user_from_dynamodb
+            dynamodb_user = None
+            # Try loading by username first (Lambda uses username as PK), then user_id
+            if username:
+                dynamodb_user = get_user_from_dynamodb(username)
+            if not dynamodb_user and user_id:
+                dynamodb_user = get_user_from_dynamodb(user_id)
+            
+            if dynamodb_user:
+                # Use DynamoDB user data as source of truth (Lambda trigger saved it)
+                user_data = {
+                    'username': dynamodb_user.get('username') or dynamodb_user.get('preferred_username') or username,
+                    'email': dynamodb_user.get('email') or '',
+                    'name': dynamodb_user.get('name') or dynamodb_user.get('username') or 'User',
+                    'user_id': dynamodb_user.get('user_id') or dynamodb_user.get('sub') or user_id,
+                    'first_name': dynamodb_user.get('given_name') or '',
+                    'last_name': dynamodb_user.get('family_name') or '',
+                }
+                user_id = user_data['user_id']
+                username = user_data['username']
+                logger.info('✅ Profile: Loaded user from DynamoDB (Lambda trigger saved it): user_id=%s, email=%s', 
+                           user_id, user_data.get('email'))
+            else:
+                # Not in DynamoDB yet - use token data as fallback
+                logger.warning('⚠️ Profile: User not found in DynamoDB yet (Lambda trigger may not have run). Using token data.')
+                if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                    payload = request.cognito_payload
+                    user_data = {
+                        'username': username,
+                        'email': payload.get('email', ''),
+                        'name': payload.get('name') or f"{payload.get('given_name', '')} {payload.get('family_name', '')}".strip(),
+                        'user_id': user_id,
+                        'first_name': payload.get('given_name', ''),
+                        'last_name': payload.get('family_name', ''),
+                    }
+                elif hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+                    user = request.user
+                    user_data = {
+                        'username': user.username,
+                        'email': getattr(user, 'email', ''),
+                        'name': user.get_full_name() or user.username,
+                        'user_id': str(user.pk),
+                        'first_name': getattr(user, 'first_name', ''),
+                        'last_name': getattr(user, 'last_name', ''),
+                    }
+        except Exception as e:
+            logger.debug('Could not load user from DynamoDB (will use token data): %s', e)
+            # Fallback to token/Django data if DynamoDB lookup fails
     
     # If no user found, redirect to login
     if not user_id:
