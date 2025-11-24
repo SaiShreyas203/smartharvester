@@ -979,6 +979,55 @@ def save_planting(request):
     logger.info('Planting data: crop_name=%s, planting_date=%s, image_url=%s', 
                 crop_name, planting_date.isoformat(), image_url[:50] if image_url else 'None')
 
+    # Send SNS email notification when planting is saved
+    try:
+        from .sns_helper import publish_notification, subscribe_email_to_topic
+        from .dynamodb_helper import get_user_data_from_token
+        
+        # Get user's email
+        user_email = None
+        if hasattr(request, 'cognito_payload') and request.cognito_payload:
+            user_email = request.cognito_payload.get('email')
+        else:
+            user_data = get_user_data_from_token(request)
+            if user_data:
+                user_email = user_data.get('email')
+        
+        # Fallback to Django user email
+        if not user_email and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+            user_email = getattr(request.user, 'email', None)
+        
+        if user_email:
+            # Ensure email is subscribed to SNS topic
+            subscribe_email_to_topic(user_email)
+            
+            # Send notification email
+            subject = f"Planting Added: {crop_name}"
+            message = f"""Hello {username or 'User'},
+
+You've successfully added a new planting to your SmartHarvester account:
+
+Crop: {crop_name}
+Planting Date: {planting_date.strftime('%B %d, %Y')}
+Batch ID: {batch_id}
+{f'Notes: {notes}' if notes else ''}
+
+Your planting has been saved and a care schedule has been generated. You can view your plantings and their care steps in your dashboard.
+
+Happy gardening!
+SmartHarvester Team"""
+            
+            result = publish_notification(subject, message)
+            if result:
+                logger.info('✅ Sent SNS notification email for new planting to %s', user_email)
+            else:
+                logger.warning('⚠️ Failed to send SNS notification email for new planting')
+        else:
+            logger.debug('No email found for user - skipping SNS notification')
+    except Exception as e:
+        logger.exception('Error sending SNS notification for new planting: %s', e)
+        # Don't fail the request if notification fails
+
     return redirect('index')
 
 def edit_planting_view(request, planting_id):
@@ -1201,6 +1250,58 @@ def update_planting(request, planting_id):
             ExpressionAttributeValues=expr_attr_values,
         )
         logger.info("Updated planting %s: %s", planting_id, update_parts)
+        
+        # Get updated crop name for notification
+        updated_crop_name = request.POST.get('crop_name', 'Unknown Crop')
+        
+        # Send SNS email notification when planting is updated
+        try:
+            from .sns_helper import publish_notification, subscribe_email_to_topic
+            from .dynamodb_helper import get_user_data_from_token
+            
+            # Get user's email
+            user_email = None
+            if hasattr(request, 'cognito_payload') and request.cognito_payload:
+                user_email = request.cognito_payload.get('email')
+            else:
+                user_data = get_user_data_from_token(request)
+                if user_data:
+                    user_email = user_data.get('email')
+            
+            # Fallback to Django user email
+            if not user_email and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
+                user_email = getattr(request.user, 'email', None)
+            
+            if user_email:
+                # Ensure email is subscribed to SNS topic
+                subscribe_email_to_topic(user_email)
+                
+                # Send notification email
+                subject = f"Planting Updated: {updated_crop_name}"
+                message = f"""Hello {username or 'User'},
+
+You've successfully updated a planting in your SmartHarvester account:
+
+Crop: {updated_crop_name}
+Planting ID: {planting_id}
+{f'Batch ID: {request.POST.get("batch_id", "")}' if request.POST.get("batch_id") else ''}
+
+The changes have been saved to your account. You can view the updated planting details in your dashboard.
+
+Happy gardening!
+SmartHarvester Team"""
+                
+                result = publish_notification(subject, message)
+                if result:
+                    logger.info('✅ Sent SNS notification email for updated planting to %s', user_email)
+                else:
+                    logger.warning('⚠️ Failed to send SNS notification email for updated planting')
+            else:
+                logger.debug('No email found for user - skipping SNS notification')
+        except Exception as e:
+            logger.exception('Error sending SNS notification for updated planting: %s', e)
+            # Don't fail the request if notification fails
+            
     except ClientError as e:
         logger.exception("DynamoDB update_item failed for planting %s: %s", planting_id, e)
 
