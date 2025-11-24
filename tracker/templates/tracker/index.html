@@ -188,22 +188,24 @@
                         <p>{{ planting.notes }}</p>
                     </div>
                     {% endif %}
-                    <div class="card-steps" style="display:none;">
-                        {% if planting.plan %}
+                    <div class="card-steps" style="display:none;" data-planting-id="{{ planting.id }}" data-crop-name="{{ planting.crop_name }}" data-plan-count="{% if planting.plan %}{{ planting.plan|length }}{% else %}0{% endif %}">
+                        {% if planting.plan and planting.plan|length > 0 %}
+                            <ul style="list-style: none; padding: 0; margin: 0;">
                             {% for task_item in planting.plan %}
-                            <li style="margin: 8px 0; padding: 4px 0;">
-                                <strong>{{ task_item.task|default:"Task" }}</strong>
-                                {% if task_item.due_date %}
-                                    <span style="color: #5cb85c; margin-left: 8px;">
-                                        ({{ task_item.due_date|date:"M d" }})
-                                    </span>
-                                {% endif %}
-                            </li>
-                            {% empty %}
-                                <li><em>No steps available.</em></li>
+                                <li style="margin: 8px 0; padding: 4px 0; list-style: none;">
+                                    <strong>{{ task_item.task|default:"Task" }}</strong>
+                                    {% if task_item.due_date %}
+                                        <span style="color: #5cb85c; margin-left: 8px;">
+                                            ({{ task_item.due_date|date:"M d" }})
+                                        </span>
+                                    {% endif %}
+                                </li>
                             {% endfor %}
+                            </ul>
                         {% else %}
-                            <li><em>No steps available.</em></li>
+                            <ul style="list-style: none; padding: 0; margin: 0;">
+                                <li style="list-style: none;"><em>No steps available.</em></li>
+                            </ul>
                         {% endif %}
                     </div>
                 </div>
@@ -259,6 +261,26 @@
                         <p>{{ planting.notes }}</p>
                     </div>
                     {% endif %}
+                    <div class="card-steps" style="display:none;" data-planting-id="{{ planting.id }}" data-crop-name="{{ planting.crop_name }}" data-plan-count="{% if planting.plan %}{{ planting.plan|length }}{% else %}0{% endif %}">
+                        {% if planting.plan and planting.plan|length > 0 %}
+                            <ul style="list-style: none; padding: 0; margin: 0;">
+                            {% for task_item in planting.plan %}
+                                <li style="margin: 8px 0; padding: 4px 0; list-style: none;">
+                                    <strong>{{ task_item.task|default:"Task" }}</strong>
+                                    {% if task_item.due_date %}
+                                        <span style="color: #5cb85c; margin-left: 8px;">
+                                            ({{ task_item.due_date|date:"M d" }})
+                                        </span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        {% else %}
+                            <ul style="list-style: none; padding: 0; margin: 0;">
+                                <li style="list-style: none;"><em>No steps available.</em></li>
+                            </ul>
+                        {% endif %}
+                    </div>
                 </div>
                 {% empty %}
                 <p class="empty-state">No other ongoing plantings.</p>
@@ -312,6 +334,26 @@
                         <p>{{ planting.notes }}</p>
                     </div>
                     {% endif %}
+                    <div class="card-steps" style="display:none;" data-planting-id="{{ planting.id }}" data-crop-name="{{ planting.crop_name }}" data-plan-count="{% if planting.plan %}{{ planting.plan|length }}{% else %}0{% endif %}">
+                        {% if planting.plan and planting.plan|length > 0 %}
+                            <ul style="list-style: none; padding: 0; margin: 0;">
+                            {% for task_item in planting.plan %}
+                                <li style="margin: 8px 0; padding: 4px 0; list-style: none;">
+                                    <strong>{{ task_item.task|default:"Task" }}</strong>
+                                    {% if task_item.due_date %}
+                                        <span style="color: #5cb85c; margin-left: 8px;">
+                                            ({{ task_item.due_date|date:"M d" }})
+                                        </span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        {% else %}
+                            <ul style="list-style: none; padding: 0; margin: 0;">
+                                <li style="list-style: none;"><em>No steps available.</em></li>
+                            </ul>
+                        {% endif %}
+                    </div>
                 </div>
                 {% empty %}
                 <p class="empty-state">No past harvests yet.</p>
@@ -472,30 +514,80 @@
                     const notesDiv = card.querySelector('.card-notes');
                     const stepsDiv = card.querySelector('.card-steps');
                     
-                    // Get steps HTML - check if steps div exists and has content
+                    // Debug: Log card info
+                    if (stepsDiv) {
+                        const cropName = stepsDiv.getAttribute('data-crop-name') || 'Unknown';
+                        const planCount = stepsDiv.getAttribute('data-plan-count') || '0';
+                        console.log('🔍 Card clicked:', title, '| Crop:', cropName, '| Plan count:', planCount);
+                    }
+                    
+                    // Get steps HTML - extract the <ul> content from the steps div
                     let stepsHTML = '';
                     if (stepsDiv) {
+                        // Get the innerHTML which should contain the <ul> with <li> items
                         stepsHTML = stepsDiv.innerHTML.trim();
                         console.log('📋 Steps HTML for', title, ':', stepsHTML.length, 'chars');
-                        if (stepsHTML.length > 0 && !stepsHTML.includes('No steps available')) {
-                            console.log('✅ Found steps:', stepsHTML.substring(0, 150));
+                        console.log('📋 Full Steps HTML:', stepsHTML);
+                        
+                        // Check if it contains actual step items
+                        if (stepsHTML.includes('<strong>')) {
+                            console.log('✅ Steps HTML contains <strong> tags - has task items');
                         } else {
-                            console.log('⚠️ No steps found or empty');
+                            console.log('⚠️ Steps HTML does not contain <strong> tags - may be empty');
                         }
                     } else {
                         console.log('❌ Steps div not found for', title);
                     }
                     
-                    // If no steps HTML or only contains "No steps available"
-                    if (!stepsHTML || stepsHTML.length === 0 || stepsHTML.trim() === '<li><em>No steps available.</em></li>') {
-                        stepsHTML = '<li><em>No steps available.</em></li>';
-                        console.log('⚠️ Using default "No steps available" message');
+                    // Extract <li> elements from the steps HTML
+                    let stepsListHTML = '';
+                    if (stepsHTML && stepsHTML.length > 0) {
+                        // Check if it contains a <ul> wrapper
+                        if (stepsHTML.includes('<ul')) {
+                            // Extract just the <li> elements from the <ul>
+                            const tempDiv = document.createElement('div');
+                            tempDiv.innerHTML = stepsHTML;
+                            const ulElement = tempDiv.querySelector('ul');
+                            if (ulElement && ulElement.innerHTML.trim().length > 0) {
+                                stepsListHTML = ulElement.innerHTML;
+                                console.log('✅ Extracted steps from <ul> for', title, '-', stepsListHTML.split('<li').length - 1, 'items');
+                                console.log('✅ First item:', stepsListHTML.substring(0, 100));
+                            } else {
+                                stepsListHTML = stepsHTML;
+                                console.log('⚠️ No <ul> found, using HTML directly');
+                            }
+                        } else {
+                            // Directly use the HTML (should be <li> elements)
+                            stepsListHTML = stepsHTML;
+                            console.log('✅ Using steps HTML directly for', title);
+                        }
                     }
-
+                    
+                    // If no valid steps found, use default message
+                    if (!stepsListHTML || stepsListHTML.length === 0 || 
+                        (stepsListHTML.includes('No steps available') && !stepsListHTML.includes('<strong>'))) {
+                        stepsListHTML = '<li style="list-style: none; margin: 8px 0; padding: 4px 0;"><em>No steps available.</em></li>';
+                        console.log('⚠️ No valid steps found for', title, '- using default message');
+                    }
+                    
+                    // Set modal content
                     modalTitle.textContent = title;
                     modalNotes.innerHTML = notesDiv ? notesDiv.innerHTML : '<p>No notes available.</p>';
-                    modalStepsList.innerHTML = stepsHTML;
-                    console.log('📝 Modal steps list set to:', modalStepsList.innerHTML.substring(0, 150));
+                    
+                    // Clear and set steps - ensure it's properly formatted
+                    modalStepsList.innerHTML = '';
+                    if (stepsListHTML.trim().length > 0) {
+                        modalStepsList.innerHTML = stepsListHTML;
+                        const stepCount = modalStepsList.querySelectorAll('li').length;
+                        console.log('✅ Modal steps list populated:', stepCount, 'items for', title);
+                        if (stepCount > 0) {
+                            const firstStep = modalStepsList.querySelector('li');
+                            console.log('✅ First step text:', firstStep ? firstStep.textContent.trim().substring(0, 60) : 'none');
+                        }
+                    } else {
+                        modalStepsList.innerHTML = '<li style="list-style: none; margin: 8px 0; padding: 4px 0;"><em>No steps available.</em></li>';
+                        console.log('⚠️ Empty steps HTML, using fallback');
+                    }
 
                     modal.style.display = 'flex';
                     modal.setAttribute('aria-hidden', 'false');
