@@ -642,16 +642,25 @@ def save_planting(request):
     # Persist to DynamoDB - this is critical for permanent storage
     # The planting will be associated with the logged-in user via user_id and username
     try:
+        # Log the planting data before saving (for debugging)
+        logger.debug('Attempting to save planting to DynamoDB: user_id=%s, username=%s, crop_name=%s, planting_date=%s', 
+                    user_id, username, crop_name, planting_date.isoformat())
+        logger.debug('Planting data keys: %s', list(new_planting.keys()))
+        
         returned_id = save_planting_to_dynamodb(new_planting)
         if returned_id:
             new_planting['planting_id'] = returned_id
             logger.info('✅ Saved planting %s to DynamoDB for user_id=%s, username=%s', returned_id, user_id, username)
         else:
-            logger.error('❌ save_planting_to_dynamodb returned falsy - planting NOT saved to DynamoDB! user_id=%s, username=%s', user_id, username)
+            logger.error('❌ save_planting_to_dynamodb returned None - planting NOT saved to DynamoDB!')
+            logger.error('Planting data: user_id=%s, username=%s, crop_name=%s', user_id, username, crop_name)
+            logger.error('Check logs above for DynamoDB errors (ClientError, permissions, etc.)')
             logger.warning('Using local id %s for session only', local_planting_id)
     except Exception as e:
-        logger.exception('❌ Failed to save planting to DynamoDB: %s - continuing with session-only', e)
-        logger.error('Planting will be lost if session expires! user_id=%s, username=%s', user_id, username)
+        logger.exception('❌ Exception saving planting to DynamoDB: %s', e)
+        logger.error('Exception type: %s', type(e).__name__)
+        logger.error('Planting data: user_id=%s, username=%s, crop_name=%s', user_id, username, crop_name)
+        logger.error('Planting will be lost if session expires!')
 
     # Always save to session so it appears immediately
     user_plantings = request.session.get('user_plantings', [])

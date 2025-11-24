@@ -253,12 +253,36 @@ def save_planting_to_dynamodb(planting: Union[Dict[str, Any], object]) -> Option
             logger.error("save_planting_to_dynamodb: missing both user_id and username; refusing to write: %s", item)
             return None
 
-        # Convert numbers/decimals and remove None
-        item = {k: _to_dynamo_decimal(v) for k, v in item.items() if v is not None}
+        # Ensure planting_id is present and is a string
+        if not item.get("planting_id"):
+            item["planting_id"] = str(uuid.uuid4())
+        item["planting_id"] = str(item["planting_id"])
+
+        # Ensure user_id and username are strings
+        if item.get("user_id"):
+            item["user_id"] = str(item["user_id"])
+        if item.get("username"):
+            item["username"] = str(item["username"])
+
+        # Convert numbers/decimals and remove None values
+        # But preserve empty strings and empty lists
+        cleaned_item = {}
+        for k, v in item.items():
+            if v is None:
+                continue  # Skip None values
+            # Convert floats to Decimal, but preserve strings, lists, dicts
+            cleaned_item[k] = _to_dynamo_decimal(v)
+        
+        # Log the item being saved (without sensitive data)
+        logger.debug("Saving planting to DynamoDB: planting_id=%s, user_id=%s, username=%s, crop_name=%s", 
+                    cleaned_item.get("planting_id"), cleaned_item.get("user_id"), 
+                    cleaned_item.get("username"), cleaned_item.get("crop_name"))
+        
         table = _table(DYNAMO_PLANTINGS_TABLE)
-        table.put_item(Item=item)
-        logger.info("Saved planting %s to DynamoDB (user: %s / username: %s)", item.get("planting_id"), item.get("user_id"), item.get("username"))
-        return str(item.get("planting_id"))
+        table.put_item(Item=cleaned_item)
+        logger.info("Saved planting %s to DynamoDB (user: %s / username: %s)", 
+                    cleaned_item.get("planting_id"), cleaned_item.get("user_id"), cleaned_item.get("username"))
+        return str(cleaned_item.get("planting_id"))
     except ClientError as e:
         logger.exception("DynamoDB ClientError saving planting: %s", e)
         return None
