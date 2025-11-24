@@ -560,8 +560,17 @@ def add_planting_view(request):
     
     logger.info('add_planting_view: User authenticated (user_id=%s), rendering add planting form', user_id)
     plant_data = load_plant_data()
+    # New structure: plant names are keys in the flat dict (e.g., {"Basil": {...}, "Cucumbers": {...}})
+    if isinstance(plant_data, dict):
+        # Extract plant names from keys (filter out non-dict values)
+        plant_names = sorted([name for name in plant_data.keys() if isinstance(plant_data.get(name), dict)])
+    else:
+        # Fallback: empty list if structure is unexpected
+        plant_names = []
+        logger.warning('Unexpected plant_data structure in add_planting_view')
+    
     context = {
-        'plant_names': [p['name'] for p in plant_data['plants']],
+        'plant_names': plant_names,
         'is_editing': False
     }
     return render(request, 'tracker/edit.html', context)
@@ -883,8 +892,17 @@ def edit_planting_view(request, planting_id):
         return redirect('index')
 
     plant_data = load_plant_data()
+    # New structure: plant names are keys in the flat dict (e.g., {"Basil": {...}, "Cucumbers": {...}})
+    if isinstance(plant_data, dict):
+        # Extract plant names from keys (filter out non-dict values)
+        plant_names = sorted([name for name in plant_data.keys() if isinstance(plant_data.get(name), dict)])
+    else:
+        # Fallback: empty list if structure is unexpected
+        plant_names = []
+        logger.warning('Unexpected plant_data structure in edit_planting_view')
+    
     context = {
-        'plant_names': [p['name'] for p in plant_data['plants']],
+        'plant_names': plant_names,
         'planting': planting_to_edit,
         'is_editing': True
     }

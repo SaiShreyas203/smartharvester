@@ -16,26 +16,46 @@ def calculate_plan(crop_name: str, planting_date: date, plant_data: Dict[str, An
     Args:
         crop_name: Name of the crop (e.g., "Cucumbers")
         planting_date: Date when the crop was planted
-        plant_data: Dictionary containing plant data from data.json
+        plant_data: Dictionary containing plant data from data.json (new flat structure)
         
     Returns:
         List of dictionaries with 'task' and 'due_date' keys
     """
     plan = []
     
-    if not plant_data or 'plants' not in plant_data:
+    if not plant_data:
         logger.warning('calculate_plan: Invalid plant_data structure')
         return plan
     
-    # Find the matching plant
+    # Support both new structure (flat object with plant names as keys) and old structure (with 'plants' array)
     plant_info = None
-    for plant in plant_data['plants']:
-        if plant.get('name', '').lower() == crop_name.lower():
-            plant_info = plant
-            break
+    
+    # Try new structure first: plant_data is a dict with plant names as keys (e.g., {"Basil": {...}, "Cucumbers": {...}})
+    if isinstance(plant_data, dict):
+        # Check exact match first
+        if crop_name in plant_data:
+            plant_info = plant_data[crop_name]
+        # Try title case (e.g., "basil" -> "Basil")
+        elif crop_name.title() in plant_data:
+            plant_info = plant_data[crop_name.title()]
+        # Try case-insensitive match
+        else:
+            crop_name_lower = crop_name.lower()
+            for key, value in plant_data.items():
+                if key.lower() == crop_name_lower:
+                    plant_info = value
+                    break
+        
+        # If not found and 'plants' key exists, try old structure
+        if not plant_info and 'plants' in plant_data:
+            for plant in plant_data['plants']:
+                if plant.get('name', '').lower() == crop_name.lower():
+                    plant_info = plant
+                    break
     
     if not plant_info:
-        logger.warning('calculate_plan: Plant "%s" not found in plant_data', crop_name)
+        logger.warning('calculate_plan: Plant "%s" not found in plant_data. Available plants: %s', 
+                      crop_name, list(plant_data.keys())[:10] if isinstance(plant_data, dict) else 'N/A')
         return plan
     
     # Get care schedule
