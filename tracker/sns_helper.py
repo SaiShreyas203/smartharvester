@@ -46,27 +46,71 @@ def publish_notification(subject: str, message: str, topic_arn: Optional[str] = 
         return None
 
 
+def ensure_email_subscribed(email: str, topic_arn: Optional[str] = None) -> Optional[str]:
+    """
+    Ensure the given email address is subscribed to the SNS topic.
+    If already subscribed, returns the SubscriptionArn (may be 'PendingConfirmation' until user confirms).
+    If newly created, returns the subscription response ARN or None on error.
+    This function checks for existing subscriptions before subscribing to avoid duplicates.
+    """
+    arn = topic_arn or get_topic_arn()
+    if not arn:
+        logger.error("ensure_email_subscribed: no SNS topic ARN configured")
+        return None
+    client = _sns_client()
+    try:
+        # List subscriptions and check if the email is already subscribed
+        paginator = client.get_paginator("list_subscriptions_by_topic")
+        for page in paginator.paginate(TopicArn=arn):
+            for sub in page.get("Subscriptions", []):
+                endpoint = sub.get("Endpoint")
+                protocol = sub.get("Protocol")
+                sub_arn = sub.get("SubscriptionArn")
+                if protocol == "email" and (endpoint or "").lower() == email.lower():
+                    logger.debug("Found existing subscription for %s: %s", email, sub_arn)
+                    return sub_arn  # may be 'PendingConfirmation'
+
+        # Not found: subscribe
+        resp = client.subscribe(
+            TopicArn=arn,
+            Protocol="email",
+            Endpoint=email,
+            ReturnSubscriptionArn=True,
+        )
+        sub_arn = resp.get("SubscriptionArn")
+        logger.info("Created SNS email subscription for %s (SubscriptionArn=%s). User must confirm via email.", email, sub_arn)
+        return sub_arn
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        if error_code == 'SubscriptionLimitExceeded':
+            logger.warning("Subscription limit exceeded for %s, but may already be subscribed", email)
+            # Try to find it anyway
+            try:
+                paginator = client.get_paginator("list_subscriptions_by_topic")
+                for page in paginator.paginate(TopicArn=arn):
+                    for sub in page.get("Subscriptions", []):
+                        endpoint = sub.get("Endpoint")
+                        protocol = sub.get("Protocol")
+                        sub_arn = sub.get("SubscriptionArn")
+                        if protocol == "email" and (endpoint or "").lower() == email.lower():
+                            logger.info("Found existing subscription for %s after limit error: %s", email, sub_arn)
+                            return sub_arn
+            except Exception:
+                pass
+        logger.exception("SNS subscribe failed for %s: %s", email, e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error subscribing to SNS for %s", email)
+        return None
+
+
 def subscribe_email_to_topic(email: str, topic_arn: Optional[str] = None) -> Optional[str]:
     """
     Subscribe an email endpoint to the topic. Returns the SubscriptionArn or None.
     For 'email' protocol, subscription must be confirmed by the recipient (they will get a confirmation email).
+    This is a convenience wrapper around ensure_email_subscribed.
     """
-    arn = topic_arn or get_topic_arn()
-    if not arn:
-        logger.error("subscribe_email_to_topic: no SNS topic ARN configured")
-        return None
-    client = _sns_client()
-    try:
-        resp = client.subscribe(TopicArn=arn, Protocol="email", Endpoint=email, ReturnSubscriptionArn=True)
-        sub_arn = resp.get("SubscriptionArn")
-        logger.info("Subscribed %s to %s (SubscriptionArn=%s). Email must confirm subscription.", email, arn, sub_arn)
-        return sub_arn
-    except ClientError as e:
-        logger.exception("SNS subscribe failed: %s", e)
-        return None
-    except Exception:
-        logger.exception("Unexpected error subscribing to SNS")
-        return None
+    return ensure_email_subscribed(email, topic_arn)
 
 
 def list_subscriptions_for_topic(topic_arn: Optional[str] = None):

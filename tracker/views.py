@@ -981,29 +981,96 @@ def save_planting(request):
 
     # Send SNS email notification when planting is saved
     try:
-        from .sns_helper import publish_notification, subscribe_email_to_topic
+        from .sns_helper import publish_notification, ensure_email_subscribed, get_topic_arn
         from .dynamodb_helper import get_user_data_from_token
         
-        # Get user's email
+        # Get user's email - try multiple sources
         user_email = None
+        email_source = None
+        
+        # Try Cognito payload first (most reliable)
         if hasattr(request, 'cognito_payload') and request.cognito_payload:
             user_email = request.cognito_payload.get('email')
-        else:
-            user_data = get_user_data_from_token(request)
-            if user_data:
-                user_email = user_data.get('email')
+            if user_email:
+                email_source = 'cognito_payload'
+                logger.info('save_planting: Found email from cognito_payload: %s', user_email)
+        
+        # Try helper function
+        if not user_email:
+            try:
+                user_data = get_user_data_from_token(request)
+                if user_data:
+                    user_email = user_data.get('email')
+                    if user_email:
+                        email_source = 'get_user_data_from_token'
+                        logger.info('save_planting: Found email from get_user_data_from_token: %s', user_email)
+            except Exception as e:
+                logger.debug('save_planting: Error getting user data from token: %s', e)
         
         # Fallback to Django user email
         if not user_email and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
             user_email = getattr(request.user, 'email', None)
+            if user_email:
+                email_source = 'django_user'
+                logger.info('save_planting: Found email from Django user: %s', user_email)
+        
+        # Final fallback: try to get email from DynamoDB user record
+        if not user_email and username:
+            try:
+                from .dynamodb_helper import dynamo_resource, DYNAMO_USERS_TABLE
+                from boto3.dynamodb.conditions import Attr
+                table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
+                # Try to get user by username (PK) or user_id
+                try:
+                    resp = table.get_item(Key={'username': username})
+                    if 'Item' in resp:
+                        user_email = resp['Item'].get('email')
+                        if user_email:
+                            email_source = 'dynamodb_users_table'
+                            logger.info('save_planting: Found email from DynamoDB users table: %s', user_email)
+                except Exception:
+                    pass
+                # If not found by username, try scanning by user_id
+                if not user_email and user_id:
+                    try:
+                        resp = table.scan(FilterExpression=Attr('user_id').eq(str(user_id)), Limit=1)
+                        items = resp.get('Items', [])
+                        if items:
+                            user_email = items[0].get('email')
+                            if user_email:
+                                email_source = 'dynamodb_users_table_scan'
+                                logger.info('save_planting: Found email from DynamoDB users table (scan): %s', user_email)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug('save_planting: Error getting email from DynamoDB: %s', e)
         
         if user_email:
-            # Ensure email is subscribed to SNS topic
-            subscribe_email_to_topic(user_email)
+            logger.info('save_planting: Sending SNS notification to %s (source: %s)', user_email, email_source)
             
-            # Send notification email
-            subject = f"Planting Added: {crop_name}"
-            message = f"""Hello {username or 'User'},
+            # Ensure email is subscribed to SNS topic (checks if already subscribed)
+            topic_arn = get_topic_arn()
+            if not topic_arn:
+                logger.error('save_planting: SNS_TOPIC_ARN not configured - cannot send notification')
+            else:
+                # Try to ensure subscription (but don't fail if it doesn't work - email might already be subscribed)
+                try:
+                    sub_arn = ensure_email_subscribed(user_email, topic_arn)
+                    if sub_arn:
+                        logger.info('save_planting: Email %s subscription status: %s', user_email, sub_arn)
+                        # Check if subscription is confirmed
+                        if sub_arn == 'PendingConfirmation':
+                            logger.warning('save_planting: Email %s subscription is pending confirmation - notification may not be delivered', user_email)
+                        else:
+                            logger.info('save_planting: Email %s is confirmed and subscribed', user_email)
+                    else:
+                        logger.warning('save_planting: Could not verify subscription for %s, but will still attempt to publish', user_email)
+                except Exception as e:
+                    logger.warning('save_planting: Error checking subscription for %s: %s - will still attempt to publish', user_email, e)
+                
+                # Send notification email - publish to topic (will be delivered to all confirmed subscribers)
+                subject = f"Planting Added: {crop_name}"
+                message = f"""Hello {username or 'User'},
 
 You've successfully added a new planting to your SmartHarvester account:
 
@@ -1016,16 +1083,21 @@ Your planting has been saved and a care schedule has been generated. You can vie
 
 Happy gardening!
 SmartHarvester Team"""
-            
-            result = publish_notification(subject, message)
-            if result:
-                logger.info('✅ Sent SNS notification email for new planting to %s', user_email)
-            else:
-                logger.warning('⚠️ Failed to send SNS notification email for new planting')
+                
+                try:
+                    result = publish_notification(subject, message)
+                    if result:
+                        message_id = result.get('MessageId', 'unknown')
+                        logger.info('✅ Sent SNS notification email for new planting to topic %s (MessageId: %s) - will be delivered to all subscribers including %s', topic_arn, message_id, user_email)
+                    else:
+                        logger.error('❌ Failed to send SNS notification email for new planting - publish_notification returned None')
+                except Exception as e:
+                    logger.exception('❌ Exception while publishing SNS notification: %s', e)
         else:
-            logger.debug('No email found for user - skipping SNS notification')
+            logger.warning('⚠️ No email found for user (user_id=%s, username=%s) - skipping SNS notification', user_id, username)
+            logger.debug('save_planting: Email lookup attempted from: cognito_payload, get_user_data_from_token, django_user')
     except Exception as e:
-        logger.exception('Error sending SNS notification for new planting: %s', e)
+        logger.exception('❌ Error sending SNS notification for new planting: %s', e)
         # Don't fail the request if notification fails
 
     return redirect('index')
@@ -1256,29 +1328,96 @@ def update_planting(request, planting_id):
         
         # Send SNS email notification when planting is updated
         try:
-            from .sns_helper import publish_notification, subscribe_email_to_topic
+            from .sns_helper import publish_notification, ensure_email_subscribed, get_topic_arn
             from .dynamodb_helper import get_user_data_from_token
             
-            # Get user's email
+            # Get user's email - try multiple sources
             user_email = None
+            email_source = None
+            
+            # Try Cognito payload first (most reliable)
             if hasattr(request, 'cognito_payload') and request.cognito_payload:
                 user_email = request.cognito_payload.get('email')
-            else:
-                user_data = get_user_data_from_token(request)
-                if user_data:
-                    user_email = user_data.get('email')
+                if user_email:
+                    email_source = 'cognito_payload'
+                    logger.info('update_planting: Found email from cognito_payload: %s', user_email)
+            
+            # Try helper function
+            if not user_email:
+                try:
+                    user_data = get_user_data_from_token(request)
+                    if user_data:
+                        user_email = user_data.get('email')
+                        if user_email:
+                            email_source = 'get_user_data_from_token'
+                            logger.info('update_planting: Found email from get_user_data_from_token: %s', user_email)
+                except Exception as e:
+                    logger.debug('update_planting: Error getting user data from token: %s', e)
             
             # Fallback to Django user email
             if not user_email and hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
                 user_email = getattr(request.user, 'email', None)
+                if user_email:
+                    email_source = 'django_user'
+                    logger.info('update_planting: Found email from Django user: %s', user_email)
+            
+            # Final fallback: try to get email from DynamoDB user record
+            if not user_email and username:
+                try:
+                    from .dynamodb_helper import dynamo_resource, DYNAMO_USERS_TABLE
+                    from boto3.dynamodb.conditions import Attr
+                    table = dynamo_resource().Table(DYNAMO_USERS_TABLE)
+                    # Try to get user by username (PK) or user_id
+                    try:
+                        resp = table.get_item(Key={'username': username})
+                        if 'Item' in resp:
+                            user_email = resp['Item'].get('email')
+                            if user_email:
+                                email_source = 'dynamodb_users_table'
+                                logger.info('update_planting: Found email from DynamoDB users table: %s', user_email)
+                    except Exception:
+                        pass
+                    # If not found by username, try scanning by user_id
+                    if not user_email and user_id:
+                        try:
+                            resp = table.scan(FilterExpression=Attr('user_id').eq(str(user_id)), Limit=1)
+                            items = resp.get('Items', [])
+                            if items:
+                                user_email = items[0].get('email')
+                                if user_email:
+                                    email_source = 'dynamodb_users_table_scan'
+                                    logger.info('update_planting: Found email from DynamoDB users table (scan): %s', user_email)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.debug('update_planting: Error getting email from DynamoDB: %s', e)
             
             if user_email:
-                # Ensure email is subscribed to SNS topic
-                subscribe_email_to_topic(user_email)
+                logger.info('update_planting: Sending SNS notification to %s (source: %s)', user_email, email_source)
                 
-                # Send notification email
-                subject = f"Planting Updated: {updated_crop_name}"
-                message = f"""Hello {username or 'User'},
+                # Ensure email is subscribed to SNS topic (checks if already subscribed)
+                topic_arn = get_topic_arn()
+                if not topic_arn:
+                    logger.error('update_planting: SNS_TOPIC_ARN not configured - cannot send notification')
+                else:
+                    # Try to ensure subscription (but don't fail if it doesn't work - email might already be subscribed)
+                    try:
+                        sub_arn = ensure_email_subscribed(user_email, topic_arn)
+                        if sub_arn:
+                            logger.info('update_planting: Email %s subscription status: %s', user_email, sub_arn)
+                            # Check if subscription is confirmed
+                            if sub_arn == 'PendingConfirmation':
+                                logger.warning('update_planting: Email %s subscription is pending confirmation - notification may not be delivered', user_email)
+                            else:
+                                logger.info('update_planting: Email %s is confirmed and subscribed', user_email)
+                        else:
+                            logger.warning('update_planting: Could not verify subscription for %s, but will still attempt to publish', user_email)
+                    except Exception as e:
+                        logger.warning('update_planting: Error checking subscription for %s: %s - will still attempt to publish', user_email, e)
+                    
+                    # Send notification email - publish to topic (will be delivered to all confirmed subscribers)
+                    subject = f"Planting Updated: {updated_crop_name}"
+                    message = f"""Hello {username or 'User'},
 
 You've successfully updated a planting in your SmartHarvester account:
 
@@ -1290,16 +1429,21 @@ The changes have been saved to your account. You can view the updated planting d
 
 Happy gardening!
 SmartHarvester Team"""
-                
-                result = publish_notification(subject, message)
-                if result:
-                    logger.info('✅ Sent SNS notification email for updated planting to %s', user_email)
-                else:
-                    logger.warning('⚠️ Failed to send SNS notification email for updated planting')
+                    
+                    try:
+                        result = publish_notification(subject, message)
+                        if result:
+                            message_id = result.get('MessageId', 'unknown')
+                            logger.info('✅ Sent SNS notification email for updated planting to topic %s (MessageId: %s) - will be delivered to all subscribers including %s', topic_arn, message_id, user_email)
+                        else:
+                            logger.error('❌ Failed to send SNS notification email for updated planting - publish_notification returned None')
+                    except Exception as e:
+                        logger.exception('❌ Exception while publishing SNS notification: %s', e)
             else:
-                logger.debug('No email found for user - skipping SNS notification')
+                logger.warning('⚠️ No email found for user (user_id=%s, username=%s) - skipping SNS notification', user_id, username)
+                logger.debug('update_planting: Email lookup attempted from: cognito_payload, get_user_data_from_token, django_user')
         except Exception as e:
-            logger.exception('Error sending SNS notification for updated planting: %s', e)
+            logger.exception('❌ Error sending SNS notification for updated planting: %s', e)
             # Don't fail the request if notification fails
             
     except ClientError as e:
