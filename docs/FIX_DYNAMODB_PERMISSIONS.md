@@ -136,7 +136,9 @@ If you want minimal permissions, use this policy:
                 "arn:aws:dynamodb:us-east-1:518029233624:table/plantings",
                 "arn:aws:dynamodb:us-east-1:518029233624:table/plantings/index/user_id-index",
                 "arn:aws:dynamodb:us-east-1:518029233624:table/users",
-                "arn:aws:dynamodb:us-east-1:518029233624:table/users/index/*"
+                "arn:aws:dynamodb:us-east-1:518029233624:table/users/index/*",
+                "arn:aws:dynamodb:us-east-1:518029233624:table/notifications",
+                "arn:aws:dynamodb:us-east-1:518029233624:table/notifications/index/*"
             ]
         }
     ]
