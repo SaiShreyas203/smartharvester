@@ -1,70 +1,62 @@
-import time
 import logging
-from jose import jwt
-from jose.utils import base64url_decode
+import requests
+from cachetools import TTLCache
+import jwt
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-JWKS_CACHE = {'keys': None, 'fetched_at': 0}
-JWKS_TTL = 60 * 60  # 1 hour
-
-import boto3
-import jwt
-from jwt.algorithms import RSAAlgorithm
-
-COGNITO_REGION = "eu-west-1"
-USER_POOL_ID = "your-userpool-id"
-APP_CLIENT_ID = "your-app-client-id"
+ALGORITHM = "RS256"
+_jwks_cache = TTLCache(maxsize=1, ttl=3600)
 
 
-def _fetch_jwks():
-    now = time.time()
-    if JWKS_CACHE['keys'] and now - JWKS_CACHE['fetched_at'] < JWKS_TTL:
-        return JWKS_CACHE['keys']
-    
-    # JWKS endpoint must use the user pool endpoint, not the domain endpoint
-    # The domain endpoint doesn't have JWKS - only the user pool endpoint does
+def _get_jwks():
+    jwks = _jwks_cache.get("jwks")
+    if jwks:
+        return jwks
+
     user_pool_id = getattr(settings, 'COGNITO_USER_POOL_ID', None)
     cognito_region = getattr(settings, 'COGNITO_REGION', 'us-east-1')
-    
-    if user_pool_id:
-        # Use user pool specific JWKS endpoint (this is the correct endpoint)
-        jwks_url = f"https://cognito-idp.{cognito_region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
-    else:
-        # If no USER_POOL_ID, we can't verify tokens properly
-        # Try to extract from token's 'iss' claim as last resort
-        raise ValueError("COGNITO_USER_POOL_ID is required for token verification. Domain-based JWKS endpoint is not available.")
-    
-    # import requests lazily so missing deps won't crash Django at import time
-    import requests
-    r = requests.get(jwks_url, timeout=5)
-    r.raise_for_status()
-    jwks_data = r.json()
-    JWKS_CACHE['keys'] = jwks_data.get('keys', [])
-    JWKS_CACHE['fetched_at'] = now
-    return JWKS_CACHE['keys']
+
+    if not user_pool_id:
+        raise ValueError("COGNITO_USER_POOL_ID is required for token verification")
+
+    JWKS_URL = f"https://cognito-idp.{cognito_region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
+    resp = requests.get(JWKS_URL, timeout=5)
+    resp.raise_for_status()
+    jwks = resp.json()
+    _jwks_cache["jwks"] = jwks
+    return jwks
+
+
+def verify_cognito_token(token):
+    try:
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
+        jwks = _get_jwks()
+        key = None
+        for k in jwks.get("keys", []):
+            if k.get("kid") == kid:
+                key = k
+                break
+
+        if not key:
+            raise Exception("Public key not found in JWKS")
+
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
+
+        claims = jwt.decode(token, public_key, algorithms=[ALGORITHM], audience=None)
+        return claims
+
+    except Exception as e:
+        logger.warning("Token verification failed: %s", e)
+        raise
 
 
 def verify_id_token(id_token, audience=None):
     """Verify Cognito ID token and return payload or raise an exception."""
-    if audience is None:
-        audience = getattr(settings, 'COGNITO_CLIENT_ID', None)
-        if not audience:
-            # If no client ID, try to decode without verification (for development)
-            # In production, you should always have COGNITO_CLIENT_ID set
-            logger.warning("COGNITO_CLIENT_ID not set, decoding token without verification")
-            try:
-                import jwt as pyjwt
-                return pyjwt.decode(id_token, options={"verify_signature": False})
-            except Exception:
-                raise ValueError("COGNITO_CLIENT_ID is required for token verification")
-    
-    jwks = _fetch_jwks()
-    # jose.jwt.decode will handle key selection with provided jwks
-    payload = jwt.decode(id_token, jwks, algorithms=['RS256'], audience=audience)
-    return payload
+    return verify_cognito_token(id_token)
 
 
 def build_authorize_url(state=None, scope=None, redirect_uri=None):
@@ -159,28 +151,3 @@ def exchange_code_for_tokens(code):
     r = requests.post(token_url, data=data, headers=headers, auth=auth, timeout=5)
     r.raise_for_status()
     return r.json()
-
-def validate_cognito_token(id_token):
-    try:
-        # decode header
-        headers = jwt.get_unverified_header(id_token)
-
-        # get JWKS
-        jwks_url = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{USER_POOL_ID}/.well-known/jwks.json"
-        jwks = boto3.client("cognito-idp").get_jwks_uri(UserPoolId=USER_POOL_ID)
-
-        # fetch public key
-        public_key = RSAAlgorithm.from_jwk(jwks[headers["kid"]])
-
-        decoded = jwt.decode(
-            id_token,
-            public_key,
-            algorithms=["RS256"],
-            audience=APP_CLIENT_ID
-        )
-
-        return decoded
-    
-    except Exception as e:
-        print("Token validation error:", e)
-        return None
