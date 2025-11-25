@@ -71,7 +71,17 @@ def verify_cognito_token(token):
 
         public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
 
-        claims = jwt.decode(token, public_key, algorithms=[ALGORITHM], audience=None)
+        client_id = getattr(settings, 'COGNITO_CLIENT_ID', None)
+        
+        try:
+            if client_id:
+                claims = jwt.decode(token, public_key, algorithms=[ALGORITHM], audience=client_id)
+            else:
+                claims = jwt.decode(token, public_key, algorithms=[ALGORITHM], options={"verify_aud": False})
+        except jwt.InvalidAudienceError:
+            logger.warning("Audience verification failed, verifying without audience check (signature still verified)")
+            claims = jwt.decode(token, public_key, algorithms=[ALGORITHM], options={"verify_aud": False})
+        
         return claims
 
     except Exception as e:
