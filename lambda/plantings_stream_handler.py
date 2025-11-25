@@ -12,8 +12,8 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
-PLANTINGS_TABLE = os.environ.get("PLANTINGS_TABLE", "plantings")
 USERS_PK = os.environ.get("USERS_PK", "username")
+PLANTINGS_TABLE = os.environ.get("PLANTINGS_TABLE", "plantings")
 PLANTINGS_GSI = os.environ.get("PLANTINGS_GSI", "username-index")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
@@ -32,7 +32,7 @@ def _recompute_and_update_user_counts(username: str):
         resp = plantings_table.query(
             IndexName=PLANTINGS_GSI,
             KeyConditionExpression=Key("username").eq(username),
-            Select="COUNT"
+            Select="COUNT",
         )
         count = resp.get("Count", 0)
     except ClientError:
@@ -44,7 +44,7 @@ def _recompute_and_update_user_counts(username: str):
         users_table.update_item(
             Key={USERS_PK: username},
             UpdateExpression="SET planting_count = :c, last_planting_update = :t",
-            ExpressionAttributeValues={":c": count, ":t": ts}
+            ExpressionAttributeValues={":c": count, ":t": ts},
         )
         logger.info("Updated user %s planting_count=%d", username, count)
     except ClientError:
