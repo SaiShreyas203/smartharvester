@@ -15,6 +15,10 @@ IAM Permissions Required:
 Attach to Cognito User Pool:
 - AWS Console → Cognito → User Pools → Your Pool → Triggers → Pre sign-up
 """
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
 def lambda_handler(event, context):
@@ -31,20 +35,36 @@ def lambda_handler(event, context):
 
     Returns:
         Modified event with auto-confirm/verify settings
+        
+    IMPORTANT: Always returns the event object - Cognito requires this.
     """
-    # Ensure response object exists
-    response = event.setdefault("response", {})
+    try:
+        logger.info("Pre Sign-up trigger for triggerSource=%s", event.get("triggerSource"))
+        
+        # Ensure response object exists
+        response = event.setdefault("response", {})
 
-    # Auto-confirm the user
-    response["autoConfirmUser"] = True
+        # Auto-confirm the user
+        response["autoConfirmUser"] = True
 
-    # If email is present, auto-verify it
-    if "request" in event and "userAttributes" in event["request"]:
-        attrs = event["request"]["userAttributes"]
-        if attrs.get("email"):
-            response["autoVerifyEmail"] = True
-        if attrs.get("phone_number"):
-            response["autoVerifyPhone"] = True
+        # If email is present, auto-verify it
+        if "request" in event and "userAttributes" in event["request"]:
+            attrs = event["request"]["userAttributes"]
+            if attrs.get("email"):
+                response["autoVerifyEmail"] = True
+                logger.info("Auto-verifying email for user")
+            if attrs.get("phone_number"):
+                response["autoVerifyPhone"] = True
+                logger.info("Auto-verifying phone for user")
 
-    return event
+        logger.info("✅ Pre Sign-up trigger completed successfully")
+        return event
+        
+    except Exception as e:
+        # Catch ANY unhandled exception to prevent "Unrecognizable lambda output"
+        logger.exception("❌ FATAL ERROR in Pre Sign-up Lambda: %s", str(e))
+        # Still return event with minimal response so signup doesn't fail
+        response = event.setdefault("response", {})
+        response["autoConfirmUser"] = True
+        return event
 
