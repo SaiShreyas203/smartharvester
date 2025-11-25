@@ -1,20 +1,36 @@
 import logging
 import requests
-from cachetools import TTLCache
-import jwt
-
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+try:
+    from cachetools import TTLCache
+    _jwks_cache = TTLCache(maxsize=1, ttl=3600)
+except ImportError:
+    logger.warning("cachetools not installed, using simple dict cache")
+    _jwks_cache = {}
+
+try:
+    import jwt
+except ImportError:
+    jwt = None
+    logger.warning("PyJWT not installed, token verification disabled")
+
 ALGORITHM = "RS256"
-_jwks_cache = TTLCache(maxsize=1, ttl=3600)
 
 
 def _get_jwks():
-    jwks = _jwks_cache.get("jwks")
-    if jwks:
-        return jwks
+    import time
+    
+    if isinstance(_jwks_cache, dict) and "jwks" in _jwks_cache:
+        if "time" in _jwks_cache:
+            if time.time() - _jwks_cache["time"] < 3600:
+                return _jwks_cache["jwks"]
+    elif hasattr(_jwks_cache, "get"):
+        jwks = _jwks_cache.get("jwks")
+        if jwks:
+            return jwks
 
     user_pool_id = getattr(settings, 'COGNITO_USER_POOL_ID', None)
     cognito_region = getattr(settings, 'COGNITO_REGION', 'us-east-1')
@@ -26,11 +42,20 @@ def _get_jwks():
     resp = requests.get(JWKS_URL, timeout=5)
     resp.raise_for_status()
     jwks = resp.json()
-    _jwks_cache["jwks"] = jwks
+    
+    if isinstance(_jwks_cache, dict):
+        _jwks_cache["jwks"] = jwks
+        _jwks_cache["time"] = time.time()
+    else:
+        _jwks_cache["jwks"] = jwks
+    
     return jwks
 
 
 def verify_cognito_token(token):
+    if not jwt:
+        raise ImportError("PyJWT is not installed. Please install it: pip install PyJWT")
+    
     try:
         header = jwt.get_unverified_header(token)
         kid = header.get("kid")

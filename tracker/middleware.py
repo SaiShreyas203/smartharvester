@@ -14,35 +14,39 @@ class CognitoTokenMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.path.startswith("/auth/callback/") or request.path.startswith("/auth/login/"):
-            return self.get_response(request)
-
-        auth = request.META.get("HTTP_AUTHORIZATION", "")
-        token = None
-        if auth.startswith("Bearer "):
-            token = auth.split(" ", 1)[1]
-
-        if not token:
-            try:
-                token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
-            except Exception:
-                pass
-
-        if not token:
-            return self.get_response(request)
-
         try:
-            claims = verify_cognito_token(token)
-            request.cognito_claims = claims
-            request.cognito_payload = claims
-            request.user_id = claims.get("sub")
-            request.cognito_user_id = claims.get("sub")
-            request.username = claims.get("cognito:username") or claims.get("username") or claims.get("preferred_username")
-            request.email = claims.get("email")
-            logger.info("Cognito token verified for user_id=%s", request.user_id)
-        except Exception:
-            logger.warning("ID token verify failed; rejecting request")
-            return HttpResponse("Unauthorized", status=401)
+            if request.path.startswith("/auth/callback/") or request.path.startswith("/auth/login/"):
+                return self.get_response(request)
+
+            auth = request.META.get("HTTP_AUTHORIZATION", "")
+            token = None
+            if auth.startswith("Bearer "):
+                token = auth.split(" ", 1)[1]
+
+            if not token:
+                try:
+                    token = request.session.get('id_token') or request.session.get('cognito_tokens', {}).get('id_token')
+                except Exception:
+                    pass
+
+            if not token:
+                return self.get_response(request)
+
+            try:
+                claims = verify_cognito_token(token)
+                request.cognito_claims = claims
+                request.cognito_payload = claims
+                request.user_id = claims.get("sub")
+                request.cognito_user_id = claims.get("sub")
+                request.username = claims.get("cognito:username") or claims.get("username") or claims.get("preferred_username")
+                request.email = claims.get("email")
+                logger.info("Cognito token verified for user_id=%s", request.user_id)
+            except Exception as e:
+                logger.warning("ID token verify failed: %s", e)
+                return HttpResponse("Unauthorized", status=401)
+        except Exception as e:
+            logger.exception("Middleware error: %s", e)
+            return self.get_response(request)
 
         return self.get_response(request)
 
